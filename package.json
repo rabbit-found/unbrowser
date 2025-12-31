@@ -1,0 +1,53 @@
+{
+  "name": "@unbrowser/core",
+  "version": "0.1.0-alpha.1",
+  "description": "Official SDK for Unbrowser cloud API - intelligent web browsing for AI agents",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "unbrowser",
+    "web-scraping",
+    "ai-agent",
+    "llm",
+    "browser-automation",
+    "api-discovery",
+    "content-extraction",
+    "headless-browser",
+    "mcp",
+    "claude"
+  ],
+  "author": "Rabbit Found <npm@rabbitfound.com>",
+  "license": "MIT",
+  "homepage": "https://unbrowser.ai",
+  "bugs": {
+    "url": "https://github.com/rabbit-found/unbrowser/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rabbit-found/unbrowser.git"
+  },
+  "devDependencies": {
+    "@types/node": "^22.8.4",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
