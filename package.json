@@ -1,6 +1,6 @@
 {
-  "name": "@unbrowser/core",
-  "version": "0.1.0-alpha.1",
+  "name": "unbrowser-core",
+  "version": "0.1.0-alpha.4",
   "description": "Official SDK for Unbrowser cloud API - intelligent web browsing for AI agents",
   "type": "module",
   "main": "dist/index.js",
@@ -29,6 +29,7 @@
     "browser-automation",
     "api-discovery",
     "content-extraction",
+    "content-change-prediction",
     "headless-browser",
     "mcp",
     "claude"
@@ -41,7 +42,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rabbit-found/unbrowser.git"
+    "url": "git+https://github.com/rabbit-found/unbrowser.git",
+    "directory": "packages/core"
   },
   "devDependencies": {
     "@types/node": "^22.8.4",
