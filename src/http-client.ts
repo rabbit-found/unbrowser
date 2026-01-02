@@ -370,6 +370,147 @@ export interface SkillImportResult {
   warnings: string[];
 }
 
+// ============================================
+// Content Change Prediction Types (INT-018)
+// ============================================
+
+/** Urgency level for content change predictions */
+export type UrgencyLevel = 0 | 1 | 2 | 3;
+
+/** Calendar trigger for recurring annual changes */
+export interface CalendarTrigger {
+  /** Month (1-12) */
+  month: number;
+  /** Day of month (1-31) */
+  dayOfMonth: number;
+  /** Human-readable description */
+  description?: string;
+  /** Confidence in this trigger (0-1) */
+  confidence: number;
+  /** Number of historical occurrences */
+  historicalCount: number;
+}
+
+/** Seasonal pattern analysis */
+export interface SeasonalPattern {
+  /** Months with higher-than-average change frequency */
+  highChangeMonths: number[];
+  /** Days of month with higher-than-average change frequency */
+  highChangeDays?: number[];
+  /** Total observations used for this analysis */
+  totalObservations: number;
+}
+
+/** Next predicted change */
+export interface PredictionForecast {
+  /** Predicted timestamp of next change (ms since epoch) */
+  predictedAt: number;
+  /** ISO string of predicted time */
+  predictedAtISO?: string;
+  /** Confidence in this prediction (0-1) */
+  confidence: number;
+  /** Uncertainty window in ms */
+  uncertaintyWindowMs?: number;
+  /** Human-readable reason for prediction */
+  reason: string;
+}
+
+/** Content change pattern for a URL */
+export interface ContentChangePattern {
+  /** Pattern ID */
+  id: string;
+  /** Domain of the content */
+  domain: string;
+  /** URL pattern (regex or literal) */
+  urlPattern: string;
+  /** Detected pattern type */
+  detectedPattern: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'static' | 'irregular';
+  /** Confidence in pattern detection (0-1) */
+  patternConfidence: number;
+  /** Current urgency level (0=low, 1=normal, 2=high, 3=critical) */
+  urgencyLevel: UrgencyLevel;
+  /** Next predicted change */
+  nextPrediction?: PredictionForecast;
+  /** Detected calendar triggers */
+  calendarTriggers?: CalendarTrigger[];
+  /** Seasonal pattern analysis */
+  seasonalPattern?: SeasonalPattern;
+  /** Recommended polling interval in ms */
+  recommendedPollIntervalMs: number;
+  /** Number of changes observed */
+  changeCount: number;
+  /** When pattern was last analyzed */
+  lastAnalyzedAt?: number;
+}
+
+/** Result from getPredictions */
+export interface PredictionsResult {
+  success: boolean;
+  data: {
+    patterns: ContentChangePattern[];
+    summary?: {
+      totalPatterns: number;
+      byUrgency: {
+        critical: number;
+        high: number;
+        normal: number;
+        low: number;
+      };
+      withCalendarTriggers: number;
+    };
+    metadata: {
+      timestamp: number;
+      requestDuration: number;
+    };
+  };
+}
+
+/** Result from getPredictionsByDomain */
+export interface DomainPredictionsResult {
+  success: boolean;
+  data: {
+    domain: string;
+    patterns: ContentChangePattern[];
+    metadata: {
+      timestamp: number;
+      requestDuration: number;
+    };
+  };
+}
+
+/** Prediction accuracy statistics */
+export interface PredictionAccuracyResult {
+  success: boolean;
+  data: {
+    domain: string;
+    urlPattern: string;
+    accuracy: {
+      totalPredictions: number;
+      successfulPredictions: number;
+      successRate: number;
+      recentAccuracy?: number;
+      averageErrorMs?: number;
+      averageErrorHours?: number;
+    };
+    metadata: {
+      timestamp: number;
+      requestDuration: number;
+    };
+  };
+}
+
+/** Result from recording an observation */
+export interface ObservationResult {
+  success: boolean;
+  data: {
+    pattern: ContentChangePattern;
+    metadata: {
+      timestamp: number;
+      requestDuration: number;
+    };
+  };
+}
+
 export class UnbrowserError extends Error {
   code: string;
 
@@ -1010,6 +1151,169 @@ export class UnbrowserClient {
     return this.request<FuzzDiscoveryResult>('POST', '/v1/discover/fuzz', {
       domain,
       options,
+    });
+  }
+
+  // ============================================
+  // Content Change Predictions (INT-018)
+  // ============================================
+
+  /**
+   * Get all content change predictions, sorted by urgency
+   *
+   * Returns patterns with calendar triggers, seasonal patterns, and
+   * recommended polling intervals based on urgency levels.
+   *
+   * @param options - Filter options
+   * @returns Predictions result with patterns and summary
+   *
+   * @example
+   * ```typescript
+   * // Get all predictions
+   * const result = await client.getPredictions();
+   * console.log(`${result.data.summary.totalPatterns} patterns tracked`);
+   * console.log(`${result.data.summary.byUrgency.critical} critical urgency`);
+   *
+   * // Filter by minimum urgency (2 = high, 3 = critical)
+   * const urgent = await client.getPredictions({ minUrgency: 2 });
+   * for (const pattern of urgent.data.patterns) {
+   *   console.log(`${pattern.domain}: ${pattern.nextPrediction?.reason}`);
+   * }
+   *
+   * // Filter by domain
+   * const govPatterns = await client.getPredictions({ domain: 'gov.es' });
+   * ```
+   */
+  async getPredictions(options?: {
+    /** Minimum urgency level (0-3) */
+    minUrgency?: UrgencyLevel;
+    /** Filter by domain (partial match) */
+    domain?: string;
+  }): Promise<PredictionsResult> {
+    const params = new URLSearchParams();
+    if (options?.minUrgency !== undefined) {
+      params.set('minUrgency', String(options.minUrgency));
+    }
+    if (options?.domain) {
+      params.set('domain', options.domain);
+    }
+    const query = params.toString();
+    return this.request<PredictionsResult>('GET', `/v1/predictions${query ? `?${query}` : ''}`);
+  }
+
+  /**
+   * Get predictions for a specific domain
+   *
+   * @param domain - Domain to get predictions for
+   * @returns Domain predictions with full pattern details
+   *
+   * @example
+   * ```typescript
+   * const result = await client.getPredictionsByDomain('extranjeros.inclusion.gob.es');
+   * for (const pattern of result.data.patterns) {
+   *   console.log(`${pattern.urlPattern}: urgency ${pattern.urgencyLevel}`);
+   *   if (pattern.calendarTriggers?.length) {
+   *     console.log(`  Calendar triggers: ${pattern.calendarTriggers.map(t => `${t.month}/${t.dayOfMonth}`).join(', ')}`);
+   *   }
+   * }
+   * ```
+   */
+  async getPredictionsByDomain(domain: string): Promise<DomainPredictionsResult> {
+    return this.request<DomainPredictionsResult>('GET', `/v1/predictions/${encodeURIComponent(domain)}`);
+  }
+
+  /**
+   * Get prediction accuracy statistics for a domain
+   *
+   * @param domain - Domain to get accuracy stats for
+   * @param urlPattern - Optional URL pattern filter
+   * @returns Accuracy statistics
+   *
+   * @example
+   * ```typescript
+   * const stats = await client.getPredictionAccuracy('gov.es');
+   * console.log(`Success rate: ${(stats.data.accuracy.successRate * 100).toFixed(1)}%`);
+   * console.log(`Average error: ${stats.data.accuracy.averageErrorHours?.toFixed(1)} hours`);
+   * ```
+   */
+  async getPredictionAccuracy(domain: string, urlPattern?: string): Promise<PredictionAccuracyResult> {
+    const params = urlPattern ? `?urlPattern=${encodeURIComponent(urlPattern)}` : '';
+    return this.request<PredictionAccuracyResult>(
+      'GET',
+      `/v1/predictions/${encodeURIComponent(domain)}/accuracy${params}`
+    );
+  }
+
+  /**
+   * Get all patterns at or above a specific urgency level
+   *
+   * Urgency levels:
+   * - 0: Low (static content, rarely changes)
+   * - 1: Normal (regular patterns detected)
+   * - 2: High (change predicted within recommended poll interval)
+   * - 3: Critical (calendar trigger within 7 days)
+   *
+   * @param level - Minimum urgency level (0-3)
+   * @returns Patterns at or above the specified urgency
+   *
+   * @example
+   * ```typescript
+   * // Get critical urgency patterns (calendar triggers soon)
+   * const critical = await client.getUrgentPredictions(3);
+   * for (const pattern of critical.data.patterns) {
+   *   console.log(`URGENT: ${pattern.domain} - ${pattern.nextPrediction?.reason}`);
+   * }
+   *
+   * // Get high+ urgency for refresh scheduling
+   * const highPriority = await client.getUrgentPredictions(2);
+   * for (const pattern of highPriority.data.patterns) {
+   *   scheduleRefresh(pattern.domain, pattern.recommendedPollIntervalMs);
+   * }
+   * ```
+   */
+  async getUrgentPredictions(level: UrgencyLevel): Promise<PredictionsResult> {
+    return this.request<PredictionsResult>('GET', `/v1/predictions/urgency/${level}`);
+  }
+
+  /**
+   * Record a content observation for prediction learning
+   *
+   * Call this after checking content to train the prediction model.
+   * The system will track changes and improve future predictions.
+   *
+   * @param domain - Domain of the content
+   * @param urlPattern - URL pattern being observed
+   * @param contentHash - Hash of the current content
+   * @param changed - Whether the content changed since last observation
+   * @returns Updated pattern with new predictions
+   *
+   * @example
+   * ```typescript
+   * // After checking content
+   * const newHash = hashContent(pageContent);
+   * const changed = newHash !== previousHash;
+   *
+   * const result = await client.recordObservation(
+   *   'extranjeros.inclusion.gob.es',
+   *   '/es/informacion/nie',
+   *   newHash,
+   *   changed
+   * );
+   *
+   * console.log(`Next predicted change: ${result.data.pattern.nextPrediction?.reason}`);
+   * console.log(`Recommended poll: ${result.data.pattern.recommendedPollIntervalMs / 3600000}h`);
+   * ```
+   */
+  async recordObservation(
+    domain: string,
+    urlPattern: string,
+    contentHash: string,
+    changed: boolean
+  ): Promise<ObservationResult> {
+    return this.request<ObservationResult>('POST', `/v1/predictions/${encodeURIComponent(domain)}/observe`, {
+      urlPattern,
+      contentHash,
+      changed,
     });
   }
 }
