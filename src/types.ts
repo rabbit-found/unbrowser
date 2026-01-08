@@ -1547,3 +1547,28 @@ export interface ResearchStatus {
     maxSourcesLimit: number;
   };
 }
+
+/**
+ * Research progress event for SSE streaming.
+ */
+export interface ResearchProgressEvent {
+  /** Stage of research */
+  stage: 'started' | 'searching' | 'browsing' | 'extracting' | 'verifying' | 'completed' | 'error';
+  /** Elapsed time in ms */
+  elapsed: number;
+  /** Current source index (1-based) */
+  currentSource?: number;
+  /** Total sources to process */
+  totalSources?: number;
+  /** URL currently being processed */
+  currentUrl?: string;
+  /** Message for display */
+  message?: string;
+  /** Error message if stage is 'error' */
+  error?: string;
+}
+
+/**
+ * Callback for research progress events.
+ */
+export type ResearchProgressCallback = (event: ResearchProgressEvent) => void | Promise<void>;

@@ -38,6 +38,8 @@ import type {
   ResearchResult,
   QuickResearchResult,
   ResearchStatus,
+  ResearchProgressEvent,
+  ResearchProgressCallback,
 } from './types.js';
 
 import {
@@ -1019,7 +1021,8 @@ export class UnbrowserClient {
    * ```
    */
   async research(options: ResearchOptions): Promise<ResearchResult> {
-    return this.request<ResearchResult>('POST', '/v1/research', {
+    // Research endpoint returns ResearchResult directly (not wrapped in { data })
+    return this.requestDirect<ResearchResult>('POST', '/v1/research', {
       scope: options.scope,
       outputSchema: options.outputSchema,
       strategy: options.strategy,
@@ -1056,7 +1059,8 @@ export class UnbrowserClient {
     scope: string,
     preferredDomains?: string[]
   ): Promise<QuickResearchResult> {
-    return this.request<QuickResearchResult>('POST', '/v1/research/quick', {
+    // Quick research endpoint returns QuickResearchResult directly
+    return this.requestDirect<QuickResearchResult>('POST', '/v1/research/quick', {
       scope,
       preferredDomains,
     });
@@ -1085,11 +1089,154 @@ export class UnbrowserClient {
    * ```
    */
   async getResearchStatus(): Promise<ResearchStatus> {
-    const response = await this.request<{ success: boolean } & ResearchStatus>(
+    // Status endpoint returns result directly with success field
+    const response = await this.requestDirect<{ success: boolean } & ResearchStatus>(
       'GET',
       '/v1/research/status'
     );
     return response;
+  }
+
+  /**
+   * Research with real-time progress updates via SSE.
+   *
+   * @description
+   * Same as research() but provides progress callbacks as the operation proceeds.
+   * Uses Server-Sent Events for real-time updates on:
+   * - Searching for sources
+   * - Browsing each source
+   * - Extracting data
+   * - Cross-verifying results
+   *
+   * @param options - Research request options
+   * @param onProgress - Callback for progress events
+   * @returns Research result with extracted data and sources
+   *
+   * @example
+   * ```typescript
+   * const result = await client.researchWithProgress(
+   *   { scope: 'Spain IPREM rates 2025' },
+   *   (event) => {
+   *     console.log(`[${event.stage}] ${event.message}`);
+   *     if (event.currentSource) {
+   *       console.log(`  Source ${event.currentSource}/${event.totalSources}`);
+   *     }
+   *   }
+   * );
+   *
+   * console.log(`Confidence: ${result.confidence}`);
+   * ```
+   */
+  async researchWithProgress(
+    options: ResearchOptions,
+    onProgress: ResearchProgressCallback
+  ): Promise<ResearchResult> {
+    const fullUrl = `${this.baseUrl}/v1/research`;
+
+    const response = await fetch(fullUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify({
+        scope: options.scope,
+        outputSchema: options.outputSchema,
+        strategy: options.strategy,
+        maxSources: options.maxSources,
+        language: options.language,
+        preferredDomains: options.preferredDomains,
+        previousResult: options.previousResult,
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      try {
+        const body = JSON.parse(text);
+        throw UnbrowserError.fromResponse(response, body);
+      } catch {
+        throw new UnbrowserError('SSE_ERROR', `HTTP ${response.status}: ${text}`);
+      }
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new UnbrowserError('SSE_ERROR', 'Failed to get response reader');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let result: ResearchResult | null = null;
+    let error: UnbrowserError | null = null;
+
+    // Helper function to parse SSE lines
+    const parseLines = (lines: string[]) => {
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.startsWith('event: ')) {
+          const eventType = line.slice(7).trim();
+
+          // Look for the data line (might be next line or same batch)
+          let dataLine: string | undefined;
+          if (i + 1 < lines.length && lines[i + 1].startsWith('data: ')) {
+            dataLine = lines[i + 1];
+          }
+
+          if (dataLine) {
+            const data = JSON.parse(dataLine.slice(6));
+
+            if (eventType === 'progress') {
+              onProgress(data as ResearchProgressEvent);
+            } else if (eventType === 'result') {
+              result = data as ResearchResult;
+            } else if (eventType === 'error') {
+              error = new UnbrowserError(
+                data.error?.code || 'SSE_ERROR',
+                data.error?.message || 'Research failed'
+              );
+            }
+          }
+        }
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        // Process any remaining buffer content when stream ends
+        if (buffer.trim()) {
+          // Debug: log remaining buffer
+          // console.log('[SSE DEBUG] Final buffer:', JSON.stringify(buffer));
+          const remainingLines = buffer.split('\n');
+          // console.log('[SSE DEBUG] Remaining lines:', remainingLines.length, remainingLines.map(l => l.slice(0, 50)));
+          parseLines(remainingLines);
+        }
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // SSE events are separated by double newlines
+      // Split on \n\n to get complete events
+      const events = buffer.split('\n\n');
+
+      // Keep the last part in buffer (might be incomplete)
+      buffer = events.pop() || '';
+
+      // Process complete events
+      for (const event of events) {
+        const lines = event.split('\n');
+        parseLines(lines);
+      }
+    }
+
+    if (error) throw error;
+    if (!result) throw new UnbrowserError('SSE_ERROR', 'No result received');
+
+    return result;
   }
 
   // ============================================
@@ -1153,6 +1300,85 @@ export class UnbrowserClient {
   // ============================================
   // Private Methods
   // ============================================
+
+  /**
+   * Make an authenticated request that returns the response directly.
+   * Used for endpoints that don't wrap results in { success, data }.
+   */
+  private async requestDirect<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    options?: { signal?: AbortSignal }
+  ): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+
+    let lastError: Error | null = null;
+    const attempts = this.retry ? this.maxRetries : 1;
+
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+        const response = await fetch(url, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          body: body ? JSON.stringify(body) : undefined,
+          signal: options?.signal || controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        const result = (await response.json()) as T & {
+          success?: boolean;
+          error?: { code: string; message: string };
+        };
+
+        // Check for error response
+        if (result.success === false && result.error) {
+          throw new UnbrowserError(result.error.code as ErrorCode, result.error.message, {
+            statusCode: response.status,
+          });
+        }
+
+        return result;
+      } catch (error) {
+        lastError = error as Error;
+
+        // Don't retry on auth errors or bad requests
+        if (error instanceof UnbrowserError) {
+          const nonRetryable: ErrorCode[] = [
+            'UNAUTHORIZED',
+            'FORBIDDEN',
+            'INVALID_REQUEST',
+            'INVALID_URL',
+            'MISSING_API_KEY',
+            'INVALID_API_KEY',
+          ];
+          if (nonRetryable.includes(error.code)) {
+            throw error;
+          }
+        }
+
+        // Don't retry on user abort
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new UnbrowserError('REQUEST_ABORTED', 'Request was aborted');
+        }
+
+        // Wait before retrying (exponential backoff)
+        if (attempt < attempts) {
+          const delay = Math.min(Math.pow(2, attempt) * 1000, 30000);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    throw lastError || new UnbrowserError('UNKNOWN_ERROR', 'Request failed');
+  }
 
   /**
    * Make an authenticated request to the API with retry logic.

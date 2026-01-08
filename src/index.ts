@@ -154,6 +154,8 @@ export type {
   ResearchResult,
   QuickResearchResult,
   ResearchStatus,
+  ResearchProgressEvent,
+  ResearchProgressCallback,
 } from './types.js';
 
 // ============================================
