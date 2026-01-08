@@ -758,6 +758,113 @@ console.log(\`Developer: \${stats.byVertical.developer || 0}\`);`,
     related: ['exportSkillPack', 'importSkillPack'],
     useCases: ['Monitor skill inventory', 'Check memory usage'],
   },
+
+  // ============================================
+  // Research Methods
+  // ============================================
+
+  research: {
+    name: 'research',
+    description: 'Conduct research on a topic using web search and intelligent browsing.',
+    details:
+      'Combines web search with intelligent browsing to find authoritative sources, ' +
+      'extract structured data, cross-verify across sources, and return high-confidence results. ' +
+      'Ideal for fact-finding tasks like government rates, visa requirements, and official data.',
+    parameters: [
+      {
+        name: 'options',
+        type: 'ResearchOptions',
+        required: true,
+        description: 'Research configuration including scope, output schema, and strategy.',
+        examples: [
+          '{ scope: "Spain IPREM rates 2025" }',
+          '{ scope: "D7 visa requirements Portugal", strategy: "authoritative" }',
+        ],
+      },
+    ],
+    returns: {
+      type: 'Promise<ResearchResult>',
+      description: 'Research result with extracted data, sources, confidence, and metadata.',
+    },
+    example: `const result = await client.research({
+  scope: 'current IPREM rates in Spain for 2025',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      monthly: { type: 'number', description: 'Monthly IPREM in EUR' },
+      annual14: { type: 'number', description: 'Annual (14 payments)' }
+    }
+  },
+  strategy: 'authoritative',
+  preferredDomains: ['boe.es', 'seg-social.es']
+});
+
+if (result.success && result.confidence > 0.8) {
+  console.log('Data:', result.data);
+  console.log('From', result.sources.length, 'sources');
+}`,
+    related: ['quickResearch', 'getResearchStatus', 'browse'],
+    useCases: [
+      'Find government rates and regulations',
+      'Research visa requirements',
+      'Get official statistics',
+      'Track changes in regulations',
+    ],
+  },
+
+  quickResearch: {
+    name: 'quickResearch',
+    description: 'Fast research with simplified output.',
+    details:
+      'Convenience method for quick research using the "quick" strategy with 3 sources maximum. ' +
+      'Returns simplified results for fast lookups.',
+    parameters: [
+      {
+        name: 'scope',
+        type: 'string',
+        required: true,
+        description: 'Natural language research query.',
+        examples: ['US 401k limits 2025', 'Portugal NHR tax status'],
+      },
+      {
+        name: 'preferredDomains',
+        type: 'string[]',
+        required: false,
+        description: 'Optional preferred domains to prioritize.',
+      },
+    ],
+    returns: {
+      type: 'Promise<QuickResearchResult>',
+      description: 'Simplified result with data, confidence, and sources.',
+    },
+    example: `const result = await client.quickResearch('US 401k contribution limits 2025');
+console.log('Confidence:', result.confidence);
+console.log('Data:', result.data);
+console.log('Duration:', result.durationMs, 'ms');`,
+    related: ['research', 'getResearchStatus'],
+    useCases: ['Quick fact lookups', 'Simple data retrieval'],
+  },
+
+  getResearchStatus: {
+    name: 'getResearchStatus',
+    description: 'Get research engine status and capabilities.',
+    details:
+      'Returns information about the research engine including search configuration, ' +
+      'available strategies, and configuration limits.',
+    parameters: [],
+    returns: {
+      type: 'Promise<ResearchStatus>',
+      description: 'Research engine status and capabilities.',
+    },
+    example: `const status = await client.getResearchStatus();
+if (status.status.searchConfigured) {
+  console.log('Search provider:', status.status.searchProvider);
+} else {
+  console.log('Using preferred domains only');
+}`,
+    related: ['research', 'quickResearch'],
+    useCases: ['Check engine status', 'Verify search configuration'],
+  },
 };
 
 /**
@@ -816,6 +923,11 @@ export function getCapabilities(): SDKCapabilities {
           'installSkillPack',
           'getSkillPackStats',
         ],
+      },
+      {
+        name: 'Research',
+        description: 'Conduct research with web search and intelligent browsing.',
+        methods: ['research', 'quickResearch', 'getResearchStatus'],
       },
       {
         name: 'Account',

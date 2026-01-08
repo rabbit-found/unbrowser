@@ -1272,3 +1272,278 @@ export interface HealthStatus {
   version: string;
   uptime?: number;
 }
+
+// ============================================
+// Research Types
+// ============================================
+
+/**
+ * JSON Schema property definition for research output.
+ */
+export interface ResearchJsonSchemaProperty {
+  type: 'string' | 'number' | 'boolean' | 'array' | 'object';
+  description?: string;
+  enum?: (string | number)[];
+  items?: ResearchJsonSchemaProperty;
+  properties?: Record<string, ResearchJsonSchemaProperty>;
+}
+
+/**
+ * JSON Schema for defining expected research output structure.
+ *
+ * @description
+ * Provide a schema to get structured data from research.
+ * The engine will extract data matching this schema from sources.
+ *
+ * @example
+ * ```typescript
+ * const schema: ResearchJsonSchema = {
+ *   type: 'object',
+ *   properties: {
+ *     monthly: { type: 'number', description: 'Monthly amount in EUR' },
+ *     annual: { type: 'number', description: 'Annual amount' },
+ *     effectiveDate: { type: 'string', description: 'When this rate became effective' }
+ *   },
+ *   required: ['monthly']
+ * };
+ * ```
+ */
+export interface ResearchJsonSchema {
+  type: 'object' | 'array' | 'string' | 'number' | 'boolean';
+  properties?: Record<string, ResearchJsonSchemaProperty>;
+  items?: ResearchJsonSchemaProperty;
+  required?: string[];
+  description?: string;
+}
+
+/**
+ * Research request options.
+ *
+ * @description
+ * Configure how the research engine searches and extracts data.
+ *
+ * @example
+ * ```typescript
+ * const options: ResearchOptions = {
+ *   scope: 'current IPREM rates in Spain for 2025',
+ *   outputSchema: {
+ *     type: 'object',
+ *     properties: {
+ *       monthly: { type: 'number', description: 'Monthly IPREM in EUR' }
+ *     }
+ *   },
+ *   strategy: 'authoritative',
+ *   maxSources: 5,
+ *   preferredDomains: ['boe.es', 'seg-social.es']
+ * };
+ * ```
+ */
+export interface ResearchOptions {
+  /**
+   * Natural language description of what to research.
+   * Be specific - include dates, locations, and what data you need.
+   */
+  scope: string;
+
+  /**
+   * JSON schema for the expected output structure.
+   * If provided, the engine extracts data matching this schema.
+   */
+  outputSchema?: ResearchJsonSchema;
+
+  /**
+   * Research strategy:
+   * - "authoritative": Prioritize government/official sources (default)
+   * - "comprehensive": Cast wide net, gather multiple perspectives
+   * - "quick": Fast results from top 3 sources only
+   */
+  strategy?: 'authoritative' | 'comprehensive' | 'quick';
+
+  /**
+   * Maximum number of sources to consult.
+   * Default: 5 for authoritative, 10 for comprehensive, 3 for quick
+   */
+  maxSources?: number;
+
+  /**
+   * Language hint for search and extraction.
+   */
+  language?: string;
+
+  /**
+   * Preferred domains - prioritize these if relevant.
+   * Useful for government or official sources.
+   */
+  preferredDomains?: string[];
+
+  /**
+   * Previous research result for change detection.
+   * If provided, the result will include what changed.
+   */
+  previousResult?: ResearchResult;
+}
+
+/**
+ * A source consulted during research.
+ */
+export interface ResearchSource {
+  /** Source URL */
+  url: string;
+  /** Page title */
+  title: string;
+  /** Domain */
+  domain: string;
+  /** Source type classification */
+  sourceType: 'government' | 'official' | 'news' | 'reference' | 'blog' | 'unknown';
+  /** Authority score (0-1) */
+  authorityScore: number;
+  /** When the source was fetched */
+  fetchedAt: string;
+  /** Relevant excerpt from source */
+  excerpt?: string;
+  /** Data extracted from this source */
+  extractedData?: Record<string, unknown>;
+  /** Whether extraction succeeded */
+  extractionSuccess: boolean;
+  /** Error if extraction failed */
+  extractionError?: string;
+}
+
+/**
+ * Cross-verification result from multiple sources.
+ */
+export interface ResearchVerification {
+  /** Whether sources agree on the data */
+  sourcesAgree: boolean;
+  /** Number of sources that agree */
+  agreementCount: number;
+  /** Total sources consulted */
+  totalSources: number;
+  /** Disagreements found between sources */
+  disagreements?: Array<{
+    field: string;
+    values: Array<{ source: string; value: unknown }>;
+  }>;
+  /** Confidence from verification (0-1) */
+  verificationConfidence: number;
+}
+
+/**
+ * Change detection result when comparing to previous research.
+ */
+export interface ResearchChangeDetection {
+  /** Whether data changed from previous result */
+  hasChanged: boolean;
+  /** Fields that changed */
+  changedFields: Array<{
+    field: string;
+    previousValue: unknown;
+    currentValue: unknown;
+    changeType: 'added' | 'removed' | 'modified';
+  }>;
+  /** Change severity */
+  severity: 'none' | 'minor' | 'major' | 'breaking';
+  /** Human-readable summary */
+  summary: string;
+}
+
+/**
+ * Complete research result.
+ *
+ * @description
+ * Contains extracted data, sources, confidence scores, and metadata.
+ *
+ * @example
+ * ```typescript
+ * const result = await client.research({
+ *   scope: 'Spain IPREM 2025'
+ * });
+ *
+ * if (result.success && result.confidence > 0.8) {
+ *   console.log('High confidence result:', result.data);
+ *   console.log('From', result.sources.length, 'sources');
+ * }
+ * ```
+ */
+export interface ResearchResult {
+  /** Whether research succeeded */
+  success: boolean;
+
+  /** Error message if failed */
+  error?: string;
+
+  /** The research scope that was requested */
+  scope: string;
+
+  /**
+   * Extracted data matching the output schema.
+   * If no schema provided, contains unstructured findings.
+   */
+  data: Record<string, unknown> | null;
+
+  /** Overall confidence score (0-1) */
+  confidence: number;
+
+  /** Confidence breakdown by factor */
+  confidenceFactors: {
+    sourceQuality: number;
+    extractionSuccess: number;
+    crossVerification: number;
+    schemaMatch: number;
+  };
+
+  /** Sources consulted during research */
+  sources: ResearchSource[];
+
+  /** Cross-verification results */
+  verification: ResearchVerification;
+
+  /** Change detection (if previousResult was provided) */
+  changes?: ResearchChangeDetection;
+
+  /** Research metadata */
+  metadata: {
+    durationMs: number;
+    searchQueries: string[];
+    strategy: string;
+    performedAt: string;
+  };
+}
+
+/**
+ * Simplified result from quick research.
+ */
+export interface QuickResearchResult {
+  success: boolean;
+  data: Record<string, unknown> | null;
+  confidence: number;
+  sources: Array<{
+    url: string;
+    title: string;
+    sourceType: string;
+  }>;
+  durationMs: number;
+}
+
+/**
+ * Research engine status.
+ */
+export interface ResearchStatus {
+  status: {
+    searchProvider: string;
+    searchConfigured: boolean;
+    engineInitialized: boolean;
+  };
+  capabilities: {
+    naturalLanguageScope: boolean;
+    outputSchema: boolean;
+    crossVerification: boolean;
+    changeDetection: boolean;
+    strategies: string[];
+  };
+  configuration: {
+    searchProviderRequired: boolean;
+    preferredDomainsAlternative: boolean;
+    maxSourcesLimit: number;
+  };
+}

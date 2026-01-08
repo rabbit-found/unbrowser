@@ -34,6 +34,10 @@ import type {
   SkillImportResult,
   SkillVertical,
   SkillTier,
+  ResearchOptions,
+  ResearchResult,
+  QuickResearchResult,
+  ResearchStatus,
 } from './types.js';
 
 import {
@@ -943,6 +947,149 @@ export class UnbrowserClient {
     };
   }> {
     return this.request('GET', '/v1/skill-packs/stats');
+  }
+
+  // ============================================
+  // Research Methods
+  // ============================================
+
+  /**
+   * Conduct research on a topic using web search and intelligent browsing.
+   *
+   * @description
+   * The research engine combines web search with intelligent browsing to:
+   * 1. Find authoritative sources based on your query
+   * 2. Browse and extract structured data from each source
+   * 3. Cross-verify data across multiple sources
+   * 4. Return high-confidence results with citations
+   *
+   * Use this for fact-finding tasks like:
+   * - Government regulations and rates (IPREM, visa requirements, etc.)
+   * - Official statistics and data
+   * - Current prices and availability
+   * - Legal requirements by country
+   *
+   * @param options - Research request options
+   * @returns Research result with extracted data and sources
+   *
+   * @throws {UnbrowserError} On network, authentication, or research errors
+   *
+   * @example Basic research
+   * ```typescript
+   * const result = await client.research({
+   *   scope: 'Spain IPREM rates for 2025'
+   * });
+   *
+   * if (result.success && result.confidence > 0.8) {
+   *   console.log('Data:', result.data);
+   *   console.log('Sources:', result.sources.map(s => s.url));
+   * }
+   * ```
+   *
+   * @example With output schema
+   * ```typescript
+   * const result = await client.research({
+   *   scope: 'current IPREM rates in Spain',
+   *   outputSchema: {
+   *     type: 'object',
+   *     properties: {
+   *       monthly: { type: 'number', description: 'Monthly IPREM in EUR' },
+   *       annual14: { type: 'number', description: 'Annual IPREM (14 payments)' }
+   *     }
+   *   },
+   *   strategy: 'authoritative',
+   *   preferredDomains: ['boe.es', 'seg-social.es']
+   * });
+   * ```
+   *
+   * @example Change detection
+   * ```typescript
+   * // First research
+   * const initial = await client.research({ scope: 'Spain IPREM 2025' });
+   *
+   * // Later, check for changes
+   * const updated = await client.research({
+   *   scope: 'Spain IPREM 2025',
+   *   previousResult: initial
+   * });
+   *
+   * if (updated.changes?.hasChanged) {
+   *   console.log('Data changed:', updated.changes.summary);
+   * }
+   * ```
+   */
+  async research(options: ResearchOptions): Promise<ResearchResult> {
+    return this.request<ResearchResult>('POST', '/v1/research', {
+      scope: options.scope,
+      outputSchema: options.outputSchema,
+      strategy: options.strategy,
+      maxSources: options.maxSources,
+      language: options.language,
+      preferredDomains: options.preferredDomains,
+      previousResult: options.previousResult,
+    });
+  }
+
+  /**
+   * Quick research with simplified output.
+   *
+   * @description
+   * Convenience method for fast research with minimal configuration.
+   * Uses 'quick' strategy with 3 sources maximum.
+   *
+   * Returns a simplified result with just the essential data.
+   *
+   * @param scope - Natural language research query
+   * @param preferredDomains - Optional preferred domains
+   * @returns Simplified research result
+   *
+   * @example
+   * ```typescript
+   * const result = await client.quickResearch('US 401k contribution limits 2025');
+   *
+   * console.log(`Confidence: ${result.confidence}`);
+   * console.log(`Data:`, result.data);
+   * console.log(`Duration: ${result.durationMs}ms`);
+   * ```
+   */
+  async quickResearch(
+    scope: string,
+    preferredDomains?: string[]
+  ): Promise<QuickResearchResult> {
+    return this.request<QuickResearchResult>('POST', '/v1/research/quick', {
+      scope,
+      preferredDomains,
+    });
+  }
+
+  /**
+   * Get research engine status and capabilities.
+   *
+   * @description
+   * Returns information about the research engine including:
+   * - Whether search is configured
+   * - Available strategies
+   * - Configuration limits
+   *
+   * @returns Research engine status
+   *
+   * @example
+   * ```typescript
+   * const status = await client.getResearchStatus();
+   *
+   * if (status.status.searchConfigured) {
+   *   console.log('Search provider:', status.status.searchProvider);
+   * } else {
+   *   console.log('Using preferred domains only');
+   * }
+   * ```
+   */
+  async getResearchStatus(): Promise<ResearchStatus> {
+    const response = await this.request<{ success: boolean } & ResearchStatus>(
+      'GET',
+      '/v1/research/status'
+    );
+    return response;
   }
 
   // ============================================

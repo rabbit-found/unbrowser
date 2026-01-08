@@ -143,6 +143,17 @@ export type {
   // Usage
   UsageStats,
   HealthStatus,
+
+  // Research
+  ResearchJsonSchemaProperty,
+  ResearchJsonSchema,
+  ResearchOptions,
+  ResearchSource,
+  ResearchVerification,
+  ResearchChangeDetection,
+  ResearchResult,
+  QuickResearchResult,
+  ResearchStatus,
 } from './types.js';
 
 // ============================================
