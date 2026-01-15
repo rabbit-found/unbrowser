@@ -1,6 +1,6 @@
 {
   "name": "@unbrowser/cloud",
-  "version": "0.1.0-alpha.5",
+  "version": "0.1.0-alpha.6",
   "description": "Lightweight HTTP SDK for Unbrowser cloud API. Zero dependencies - works on Vercel, Lambda, and any serverless platform.",
   "type": "module",
   "main": "dist/index.js",

@@ -156,6 +156,13 @@ export type {
   ResearchStatus,
   ResearchProgressEvent,
   ResearchProgressCallback,
+
+  // Contradiction Detection
+  ContradictionSeverity,
+  ContradictionCategory,
+  ContradictionAlert,
+  ContradictionSummary,
+  ContradictionResult,
 } from './types.js';
 
 // ============================================

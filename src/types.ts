@@ -1447,6 +1447,80 @@ export interface ResearchChangeDetection {
   summary: string;
 }
 
+// ============================================================================
+// Contradiction Detection Types
+// ============================================================================
+
+/**
+ * Severity level of a contradiction or policy change indicator.
+ */
+export type ContradictionSeverity = 'critical' | 'major' | 'minor' | 'info';
+
+/**
+ * Category of contradiction detected.
+ */
+export type ContradictionCategory =
+  | 'value_mismatch'     // Sources extract different values for the same field
+  | 'policy_change'      // Content contains markers indicating policy has changed
+  | 'denial_indicator';  // Content suggests denials/rejections are occurring
+
+/**
+ * A single contradiction or policy change alert.
+ */
+export interface ContradictionAlert {
+  /** Unique identifier for this alert */
+  id: string;
+  /** Category of the contradiction */
+  category: ContradictionCategory;
+  /** Severity level */
+  severity: ContradictionSeverity;
+  /** Short title describing the issue */
+  title: string;
+  /** Detailed description */
+  description: string;
+  /** Field name if this is a value mismatch */
+  field?: string;
+  /** Conflicting values from different sources */
+  conflictingValues?: Array<{
+    value: unknown;
+    source: string;
+    sourceType: string;
+    authorityScore: number;
+  }>;
+  /** Evidence supporting this alert */
+  evidence: Array<{
+    source: string;
+    excerpt: string;
+    matchedPattern?: string;
+  }>;
+  /** Recommended action to resolve */
+  suggestedAction: string;
+}
+
+/**
+ * Summary of all contradictions detected.
+ */
+export interface ContradictionSummary {
+  /** Total number of alerts */
+  total: number;
+  /** Count by severity level */
+  bySeverity: Record<ContradictionSeverity, number>;
+  /** Whether any critical alerts exist */
+  hasCritical: boolean;
+  /** Human-readable summary */
+  summary: string;
+}
+
+/**
+ * Contradiction detection result.
+ */
+export interface ContradictionResult {
+  /** Summary statistics */
+  summary: ContradictionSummary;
+  /** Individual alerts */
+  items: ContradictionAlert[];
+}
+
 /**
  * Complete research result.
  *
@@ -1500,6 +1574,18 @@ export interface ResearchResult {
 
   /** Change detection (if previousResult was provided) */
   changes?: ResearchChangeDetection;
+
+  /**
+   * Whether contradictions or policy changes were detected.
+   * Check `alerts` for details when true.
+   */
+  hasContradictions?: boolean;
+
+  /**
+   * Contradiction and policy change alerts.
+   * Present when sources disagree or policy change markers are detected.
+   */
+  alerts?: ContradictionResult;
 
   /** Research metadata */
   metadata: {
