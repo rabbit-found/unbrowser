@@ -1381,6 +1381,35 @@ export interface ResearchOptions {
    * If provided, the result will include what changed.
    */
   previousResult?: ResearchResult;
+
+  /**
+   * Enable progressive mode for faster results.
+   * When enabled, returns early once quality threshold is met.
+   * Default: true for authoritative strategy, false otherwise.
+   */
+  progressiveMode?: boolean;
+
+  /**
+   * Quality threshold for progressive mode early return.
+   * Higher values wait longer for more/better sources.
+   */
+  progressiveThreshold?: {
+    /** Min high-authority sources (score >= 0.8) before early return. Default: 2 */
+    minHighAuthority?: number;
+    /** Min total successful sources before early return. Default: 3 */
+    minTotalSources?: number;
+    /** Max wait time in ms. Default: 5000 */
+    maxWaitMs?: number;
+    /** Min wait time in ms (ensures fast sources get a chance). Default: 500 */
+    minWaitMs?: number;
+  };
+
+  /**
+   * Try to discover and use APIs instead of browser rendering.
+   * Significantly faster for sites with available APIs.
+   * Default: true for government domains.
+   */
+  tryApiFirst?: boolean;
 }
 
 /**
