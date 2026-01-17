@@ -59,7 +59,7 @@
 /**
  * SDK version
  */
-export const VERSION = '0.1.0-alpha.1';
+export const VERSION = '0.1.0-alpha.8';
 
 // ============================================
 // Client
@@ -163,6 +163,16 @@ export type {
   ContradictionAlert,
   ContradictionSummary,
   ContradictionResult,
+
+  // Content Change Prediction
+  UrgencyLevel,
+  CalendarTrigger,
+  ContentPrediction,
+  ContentChangePattern,
+  PredictionsData,
+  DomainPredictionsData,
+  PredictionAccuracyData,
+  ObservationData,
 } from './types.js';
 
 // ============================================

@@ -40,6 +40,12 @@ import type {
   ResearchStatus,
   ResearchProgressEvent,
   ResearchProgressCallback,
+  // Prediction types
+  UrgencyLevel,
+  PredictionsData,
+  DomainPredictionsData,
+  PredictionAccuracyData,
+  ObservationData,
 } from './types.js';
 
 import {
@@ -1295,6 +1301,174 @@ export class UnbrowserClient {
     }
 
     return response.json() as Promise<HealthStatus>;
+  }
+
+  // ============================================
+  // Content Change Prediction Methods
+  // ============================================
+
+  /**
+   * Get content change predictions with optional filtering.
+   *
+   * @description
+   * Retrieves predictions about when content is likely to change.
+   * Optionally filter by minimum urgency level or domain.
+   *
+   * @param options - Filter options
+   * @returns Predictions data with patterns and summary
+   *
+   * @example
+   * ```typescript
+   * // Get all predictions
+   * const all = await client.getPredictions();
+   *
+   * // Get high-urgency predictions only
+   * const urgent = await client.getPredictions({ minUrgency: 2 });
+   *
+   * // Get predictions for a specific domain
+   * const domain = await client.getPredictions({ domain: 'boe.es' });
+   * ```
+   */
+  async getPredictions(options?: {
+    minUrgency?: UrgencyLevel;
+    domain?: string;
+  }): Promise<PredictionsData> {
+    const params = new URLSearchParams();
+    if (options?.minUrgency !== undefined) {
+      params.set('minUrgency', String(options.minUrgency));
+    }
+    if (options?.domain) {
+      params.set('domain', options.domain);
+    }
+    const query = params.toString();
+    return this.request<PredictionsData>('GET', `/v1/predictions${query ? `?${query}` : ''}`);
+  }
+
+  /**
+   * Get content change predictions for a specific domain.
+   *
+   * @description
+   * Retrieves all learned patterns for a domain, including next predicted
+   * change times, calendar triggers, and recommended polling intervals.
+   *
+   * @param domain - Domain to get predictions for (e.g., 'boe.es')
+   * @returns Domain-specific predictions data
+   *
+   * @example
+   * ```typescript
+   * const predictions = await client.getPredictionsByDomain('boe.es');
+   * for (const pattern of predictions.patterns) {
+   *   console.log(`${pattern.urlPattern}: ${pattern.detectedPattern}`);
+   *   if (pattern.nextPrediction) {
+   *     console.log(`  Next change: ${new Date(pattern.nextPrediction.predictedAt)}`);
+   *   }
+   * }
+   * ```
+   */
+  async getPredictionsByDomain(domain: string): Promise<DomainPredictionsData> {
+    return this.request<DomainPredictionsData>(
+      'GET',
+      `/v1/predictions/${encodeURIComponent(domain)}`
+    );
+  }
+
+  /**
+   * Get prediction accuracy statistics.
+   *
+   * @description
+   * Returns accuracy metrics showing how well predictions have performed
+   * historically for a domain or specific URL pattern.
+   *
+   * @param domain - Domain to get accuracy for
+   * @param urlPattern - Optional URL pattern to narrow scope
+   * @returns Accuracy statistics
+   *
+   * @example
+   * ```typescript
+   * const stats = await client.getPredictionAccuracy('boe.es');
+   * console.log(`Success rate: ${stats.accuracy.successRate * 100}%`);
+   * console.log(`Avg error: ${stats.accuracy.averageErrorHours} hours`);
+   * ```
+   */
+  async getPredictionAccuracy(
+    domain: string,
+    urlPattern?: string
+  ): Promise<PredictionAccuracyData> {
+    const params = new URLSearchParams();
+    if (urlPattern) {
+      params.set('urlPattern', urlPattern);
+    }
+    const query = params.toString();
+    return this.request<PredictionAccuracyData>(
+      'GET',
+      `/v1/predictions/${encodeURIComponent(domain)}/accuracy${query ? `?${query}` : ''}`
+    );
+  }
+
+  /**
+   * Get predictions by urgency level.
+   *
+   * @description
+   * Retrieves all predictions at or above the specified urgency level.
+   * Useful for finding content that is likely to change soon.
+   *
+   * Urgency levels:
+   * - 0: Low - content rarely changes
+   * - 1: Normal - typical update patterns
+   * - 2: High - frequent updates expected
+   * - 3: Critical - imminent change predicted
+   *
+   * @param level - Minimum urgency level
+   * @returns Predictions at or above the urgency level
+   *
+   * @example
+   * ```typescript
+   * // Get critical and high urgency predictions
+   * const urgent = await client.getUrgentPredictions(2);
+   * console.log(`Found ${urgent.patterns.length} high-urgency patterns`);
+   * ```
+   */
+  async getUrgentPredictions(level: UrgencyLevel): Promise<PredictionsData> {
+    return this.request<PredictionsData>('GET', `/v1/predictions/urgency/${level}`);
+  }
+
+  /**
+   * Record a content observation for learning.
+   *
+   * @description
+   * Records when content is checked, feeding data to the pattern analysis
+   * engine. This helps improve future predictions by learning from
+   * observed change patterns.
+   *
+   * @param domain - Domain where content was checked
+   * @param urlPattern - URL pattern (path portion)
+   * @param contentHash - Hash of the content for change detection
+   * @param changed - Whether content changed since last check
+   * @returns Updated pattern with new prediction
+   *
+   * @example
+   * ```typescript
+   * // Record that content was checked and had changed
+   * const result = await client.recordObservation(
+   *   'boe.es',
+   *   '/buscar/doc.php',
+   *   'abc123hash',
+   *   true // content changed
+   * );
+   * console.log(`Next predicted change: ${result.pattern.nextPrediction?.predictedAt}`);
+   * ```
+   */
+  async recordObservation(
+    domain: string,
+    urlPattern: string,
+    contentHash: string,
+    changed: boolean
+  ): Promise<ObservationData> {
+    return this.request<ObservationData>(
+      'POST',
+      `/v1/predictions/${encodeURIComponent(domain)}/observe`,
+      { urlPattern, contentHash, changed }
+    );
   }
 
   // ============================================

@@ -1274,6 +1274,157 @@ export interface HealthStatus {
 }
 
 // ============================================
+// Content Change Prediction Types
+// ============================================
+
+/**
+ * Urgency level for content change predictions.
+ * - 0: Low - content rarely changes
+ * - 1: Normal - typical update patterns
+ * - 2: High - frequent updates expected
+ * - 3: Critical - imminent change predicted
+ */
+export type UrgencyLevel = 0 | 1 | 2 | 3;
+
+/**
+ * Calendar-based trigger for content changes.
+ *
+ * @description
+ * Represents a detected pattern where content changes at specific calendar times.
+ * For example, government rates that update annually on January 1st.
+ */
+export interface CalendarTrigger {
+  /** Month when change typically occurs (1-12) */
+  month: number;
+  /** Day of month when change occurs (optional) */
+  dayOfMonth?: number;
+  /** Human-readable description */
+  description: string;
+  /** Confidence in this trigger (0-1) */
+  confidence: number;
+  /** Number of historical observations supporting this trigger */
+  historicalCount: number;
+}
+
+/**
+ * A single content change prediction.
+ */
+export interface ContentPrediction {
+  /** Unix timestamp in milliseconds when change is predicted */
+  predictedAt: number;
+  /** Confidence in this prediction (0-1) */
+  confidence: number;
+  /** Explanation of why this prediction was made */
+  reason: string;
+}
+
+/**
+ * Pattern describing content change behavior for a URL.
+ *
+ * @description
+ * Represents learned patterns about when and how content changes.
+ * Used to optimize polling intervals and predict upcoming changes.
+ *
+ * @example
+ * ```typescript
+ * const predictions = await client.getPredictionsByDomain('boe.es');
+ * for (const pattern of predictions.data.patterns) {
+ *   console.log(`${pattern.urlPattern}: ${pattern.detectedPattern}`);
+ *   if (pattern.nextPrediction) {
+ *     console.log(`  Next change: ${new Date(pattern.nextPrediction.predictedAt)}`);
+ *   }
+ * }
+ * ```
+ */
+export interface ContentChangePattern {
+  /** Unique pattern identifier */
+  id: string;
+  /** Domain this pattern applies to */
+  domain: string;
+  /** URL pattern (path portion) */
+  urlPattern: string;
+  /** Detected change frequency pattern */
+  detectedPattern: 'static' | 'daily' | 'weekly' | 'monthly' | 'annual' | 'irregular';
+  /** Urgency level for monitoring */
+  urgencyLevel: UrgencyLevel;
+  /** Next predicted content change */
+  nextPrediction: ContentPrediction | null;
+  /** Calendar-based triggers detected */
+  calendarTriggers: CalendarTrigger[];
+  /** Seasonal patterns in change frequency */
+  seasonalPattern: {
+    /** Months with higher change frequency */
+    highChangeMonths: number[];
+    /** Total observations used for analysis */
+    totalObservations: number;
+  } | null;
+  /** Recommended polling interval in milliseconds */
+  recommendedPollIntervalMs: number;
+}
+
+/**
+ * Data returned from getting all predictions.
+ */
+export interface PredictionsData {
+  patterns: ContentChangePattern[];
+  summary?: {
+    totalPatterns: number;
+    byUrgency: {
+      critical: number;
+      high: number;
+      normal: number;
+      low: number;
+    };
+    withCalendarTriggers: number;
+  };
+  metadata: {
+    timestamp: number;
+    requestDuration: number;
+  };
+}
+
+/**
+ * Data returned from getting predictions for a specific domain.
+ */
+export interface DomainPredictionsData {
+  domain: string;
+  patterns: ContentChangePattern[];
+  metadata: {
+    timestamp: number;
+    requestDuration: number;
+  };
+}
+
+/**
+ * Data returned from getting prediction accuracy statistics.
+ */
+export interface PredictionAccuracyData {
+  domain: string;
+  urlPattern?: string;
+  accuracy: {
+    totalPredictions: number;
+    correctPredictions: number;
+    successRate: number;
+    averageErrorHours?: number;
+  };
+  metadata: {
+    timestamp: number;
+  };
+}
+
+/**
+ * Data returned from recording a content observation.
+ */
+export interface ObservationData {
+  domain: string;
+  urlPattern: string;
+  pattern: ContentChangePattern;
+  metadata: {
+    timestamp: number;
+  };
+}
+
+// ============================================
 // Research Types
 // ============================================
 
