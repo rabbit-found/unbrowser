@@ -1036,6 +1036,7 @@ export class UnbrowserClient {
       language: options.language,
       preferredDomains: options.preferredDomains,
       previousResult: options.previousResult,
+      snippetsOnly: options.snippetsOnly,
     });
   }
 

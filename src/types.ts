@@ -1561,6 +1561,24 @@ export interface ResearchOptions {
    * Default: true for government domains.
    */
   tryApiFirst?: boolean;
+
+  /**
+   * Use search snippets only - skip browsing for maximum speed.
+   *
+   * When true, the engine uses search result descriptions (snippets) directly
+   * instead of browsing each URL. This matches Claude WebSearch behavior and
+   * achieves ~300-500ms response times vs 2-60+ seconds with browsing.
+   *
+   * Trade-offs:
+   * - Content: 100-300 char snippets vs full page content
+   * - Extraction: No outputSchema support (snippets are too short)
+   * - Contradictions: Detected from snippets
+   * - Authority scoring: Yes
+   * - Source classification: Yes
+   *
+   * @default false
+   */
+  snippetsOnly?: boolean;
 }
 
 /**
