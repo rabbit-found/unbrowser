@@ -1,5 +1,5 @@
 /**
- * @unbrowser/core
+ * @unbrowser/cloud
  *
  * Official SDK for the Unbrowser cloud API - intelligent web browsing for AI agents.
  *
@@ -12,7 +12,7 @@
  * ## Quick Start
  *
  * ```typescript
- * import { createUnbrowser } from '@unbrowser/core';
+ * import { createUnbrowser } from '@unbrowser/cloud';
  *
  * const client = createUnbrowser({
  *   apiKey: process.env.UNBROWSER_API_KEY
@@ -50,10 +50,10 @@
  * - **Self-Describing**: Built for LLM discovery with introspection methods
  *
  * @see https://docs.unbrowser.ai for full documentation
- * @see https://unbrowser.ai for product information
+ * @see https://www.unbrowser.ai for product information
  *
  * @packageDocumentation
- * @module @unbrowser/core
+ * @module @unbrowser/cloud
  */
 
 /**

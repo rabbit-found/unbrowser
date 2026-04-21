@@ -1,8 +1,8 @@
-# @unbrowser/core Examples
+# @unbrowser/cloud Examples
 
 ⚠️ **WARNING: These examples are outdated and use incorrect imports.**
 
-**Problem**: These examples import `createLLMBrowser` from the local dist, but `@unbrowser/core` only exports `createUnbrowser` (HTTP client wrapper). The `createLLMBrowser` function is from the root `llm-browser` package (local MCP server).
+**Problem**: These examples import `createLLMBrowser` from the local dist, but `@unbrowser/cloud` only exports `createUnbrowser` (HTTP client wrapper). The `createLLMBrowser` function is from the root `llm-browser` package (local MCP server).
 
 **Status**: These examples need to be either:
 1. **Moved to root package** (`/examples/`) where `createLLMBrowser` actually exists

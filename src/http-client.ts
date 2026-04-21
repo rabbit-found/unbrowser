@@ -1327,7 +1327,7 @@ export class UnbrowserClient {
  *
  * @example
  * ```typescript
- * import { createUnbrowser } from '@unbrowser/core';
+ * import { createUnbrowser } from '@unbrowser/cloud';
  *
  * const client = createUnbrowser({
  *   apiKey: 'ub_live_xxxxx',

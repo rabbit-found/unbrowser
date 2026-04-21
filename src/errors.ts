@@ -1,5 +1,5 @@
 /**
- * @unbrowser/core - Error Types
+ * @unbrowser/cloud - Error Types
  *
  * Structured error types with clear codes, messages, and recovery guidance.
  * Every error includes actionable suggestions for resolution.
@@ -117,17 +117,17 @@ export const ERROR_RECOVERY: Record<ErrorCode, ErrorRecovery> = {
   // Authentication
   MISSING_API_KEY: {
     canRetry: false,
-    suggestion: 'Provide an API key in the config. Get one at https://unbrowser.ai/dashboard',
+    suggestion: 'Provide an API key in the config. Get one at https://www.unbrowser.ai/dashboard',
     alternatives: ['Check environment variable UNBROWSER_API_KEY'],
   },
   INVALID_API_KEY: {
     canRetry: false,
     suggestion: 'API key must start with "ub_live_" (production) or "ub_test_" (testing)',
-    alternatives: ['Generate a new API key at https://unbrowser.ai/dashboard'],
+    alternatives: ['Generate a new API key at https://www.unbrowser.ai/dashboard'],
   },
   EXPIRED_API_KEY: {
     canRetry: false,
-    suggestion: 'Generate a new API key at https://unbrowser.ai/dashboard',
+    suggestion: 'Generate a new API key at https://www.unbrowser.ai/dashboard',
   },
   UNAUTHORIZED: {
     canRetry: false,
@@ -136,7 +136,7 @@ export const ERROR_RECOVERY: Record<ErrorCode, ErrorRecovery> = {
   FORBIDDEN: {
     canRetry: false,
     suggestion: 'Your plan may not have access to this feature. Check your plan limits.',
-    alternatives: ['Upgrade plan at https://unbrowser.ai/pricing'],
+    alternatives: ['Upgrade plan at https://www.unbrowser.ai/pricing'],
   },
 
   // Request errors
@@ -174,7 +174,7 @@ export const ERROR_RECOVERY: Record<ErrorCode, ErrorRecovery> = {
   QUOTA_EXCEEDED: {
     canRetry: false,
     suggestion: 'Monthly quota exceeded. Upgrade plan or wait for quota reset.',
-    alternatives: ['Check usage at https://unbrowser.ai/dashboard', 'Upgrade plan'],
+    alternatives: ['Check usage at https://www.unbrowser.ai/dashboard', 'Upgrade plan'],
   },
 
   // Content errors

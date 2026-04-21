@@ -1,5 +1,5 @@
 /**
- * @unbrowser/core - SDK Introspection
+ * @unbrowser/cloud - SDK Introspection
  *
  * Self-describing capabilities for LLM discovery.
  * Call these methods to understand what the SDK can do.
@@ -885,7 +885,7 @@ if (status.status.searchConfigured) {
  */
 export function getCapabilities(): SDKCapabilities {
   return {
-    name: '@unbrowser/core',
+    name: '@unbrowser/cloud',
     version: '0.1.0-alpha.1',
     description:
       'Official SDK for the Unbrowser cloud API. Provides intelligent web browsing with learned patterns, API discovery, and progressive optimization.',
@@ -935,7 +935,7 @@ export function getCapabilities(): SDKCapabilities {
         methods: ['getUsage', 'health'],
       },
     ],
-    quickStart: `import { createUnbrowser } from '@unbrowser/core';
+    quickStart: `import { createUnbrowser } from '@unbrowser/cloud';
 
 const client = createUnbrowser({
   apiKey: process.env.UNBROWSER_API_KEY

@@ -1,5 +1,5 @@
 /**
- * @unbrowser/core - Client Implementation
+ * @unbrowser/cloud - Client Implementation
  *
  * The main UnbrowserClient class with all browsing, workflow,
  * and skill pack functionality.
@@ -76,7 +76,7 @@ import {
  * ## Quick Start
  *
  * ```typescript
- * import { createUnbrowser } from '@unbrowser/core';
+ * import { createUnbrowser } from '@unbrowser/cloud';
  *
  * const client = createUnbrowser({
  *   apiKey: process.env.UNBROWSER_API_KEY
@@ -1647,7 +1647,7 @@ export class UnbrowserClient {
  *
  * @example
  * ```typescript
- * import { createUnbrowser } from '@unbrowser/core';
+ * import { createUnbrowser } from '@unbrowser/cloud';
  *
  * // Create client
  * const client = createUnbrowser({

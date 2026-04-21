@@ -1,5 +1,5 @@
 /**
- * @unbrowser/core - Type Definitions
+ * @unbrowser/cloud - Type Definitions
  *
  * Comprehensive type definitions for the Unbrowser SDK.
  * Every type is documented with descriptions, examples, and usage guidance
@@ -41,7 +41,7 @@ export interface UnbrowserConfig {
   /**
    * API key for authentication.
    * Must start with 'ub_live_' for production or 'ub_test_' for testing.
-   * Get your API key at https://unbrowser.ai/dashboard
+   * Get your API key at https://www.unbrowser.ai/dashboard
    */
   apiKey: string;
 
