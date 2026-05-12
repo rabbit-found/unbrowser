@@ -428,7 +428,25 @@ export interface DiscoveredApi {
 }
 
 /**
+ * One entry in the per-tier attempt log returned on `BrowseMetadata.tierAttempts`.
+ *
+ * Surfaced server-side after R1.api.1; integrators can now see which tier hung
+ * or fell back rather than guessing from a bare list of names.
+ */
+export interface TierAttempt {
+  tier: 'intelligence' | 'lightweight' | 'playwright';
+  outcome: 'success' | 'fallback' | 'timeout' | 'error';
+  durationMs: number;
+  error?: { code: string; message: string };
+}
+
+/**
  * Metadata about the browse request.
+ *
+ * Expanded in R1.sdk.1 to match the richer response the API now produces.
+ * All newly-added fields are optional — they're only populated when the
+ * corresponding code path on the server set them, so older API responses
+ * continue to deserialize cleanly.
  */
 export interface BrowseMetadata {
   /**
@@ -442,13 +460,62 @@ export interface BrowseMetadata {
    * - 'lightweight': linkedom rendering (medium)
    * - 'playwright': Full browser (slowest)
    */
-  tier: string;
+  tier: 'intelligence' | 'lightweight' | 'playwright' | 'unknown';
 
   /**
    * All tiers that were attempted, in order.
    * Useful for understanding fallback behavior.
    */
-  tiersAttempted: string[];
+  tiersAttempted: Array<'intelligence' | 'lightweight' | 'playwright'>;
+
+  /**
+   * Detailed per-tier attempt records — the long form of `tiersAttempted`.
+   *
+   * For each tier in the cascade: outcome (`success`/`fallback`/`timeout`/`error`),
+   * duration, and an error structure if applicable. Use this to debug slow
+   * browses; previously only the bare list of tier names reached the client.
+   *
+   * Optional because older server versions don't populate it.
+   */
+  tierAttempts?: TierAttempt[];
+
+  /**
+   * Human-readable explanation of why this tier was chosen.
+   *
+   * Examples: "domain has learned API pattern", "lightweight render
+   * insufficient — escalated to playwright", "maxCostTier=lightweight
+   * — Playwright skipped".
+   */
+  tierReason?: string;
+
+  /**
+   * Per-tier wall-clock time in ms.
+   *
+   * Lets integrators see "intelligence: 200, lightweight: 8000, playwright: 81800"
+   * without parsing `tierAttempts`. Same source data, different shape.
+   */
+  tierTiming?: Partial<Record<'intelligence' | 'lightweight' | 'playwright', number>>;
+
+  /**
+   * Whether the SmartBrowser applied a learned pattern.
+   */
+  learningApplied?: boolean;
+
+  /**
+   * Aggregated field-level confidence score (0..1). Present when
+   * `options.verify` was requested.
+   */
+  confidence?: number;
+
+  /**
+   * Proxy attribution when a proxy was used.
+   *
+   * Populated when the API's proxy manager selected a proxy for the request.
+   * Useful when investigating geo-specific failures or rotating IPs.
+   * See R1.api.2 (follow-up) for the full proxy schema; this field is
+   * intentionally typed as `Record<string, unknown>` until that PR lands.
+   */
+  proxy?: Record<string, unknown>;
 }
 
 /**

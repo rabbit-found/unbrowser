@@ -142,6 +142,34 @@ export class UnbrowserClient {
     this.maxRetries = config.maxRetries || 3;
   }
 
+  /**
+   * R1.sdk.1: derive per-request transport options from a verb's BrowseOptions.
+   *
+   * When `options.maxLatencyMs` is set we want the SDK-side AbortController
+   * to honor it rather than silently aborting at the 60s constructor default.
+   * The cushion (`+ 30s`) gives the server response transfer headroom — for
+   * Playwright-tier results the payload (markdown, structured data, network
+   * capture, screenshots) can be sizeable.
+   *
+   * When `maxLatencyMs > 30s` we also disable automatic retries: the caller
+   * has explicitly asked for a long wait, and stacking N × maxLatencyMs via
+   * retries multiplies their pain (this is the failure pattern that produced
+   * a 282-second user-visible delay on seiu503.org during doc-chat dogfooding).
+   *
+   * Returns an empty object when `maxLatencyMs` is not set, preserving the
+   * original 60s + 3-retry default for callers that don't opt in.
+   */
+  private deriveRequestOptions(options?: { maxLatencyMs?: number }): {
+    requestTimeoutMs?: number;
+    disableRetries?: boolean;
+  } {
+    if (!options?.maxLatencyMs) return {};
+    return {
+      requestTimeoutMs: options.maxLatencyMs + 30_000,
+      disableRetries: options.maxLatencyMs > 30_000,
+    };
+  }
+
   // ============================================
   // Self-Discovery Methods (LLM-Friendly)
   // ============================================
@@ -318,11 +346,12 @@ export class UnbrowserClient {
    * ```
    */
   async browse(url: string, options?: BrowseOptions, session?: SessionData): Promise<BrowseResult> {
-    return this.request<BrowseResult>('POST', '/v1/browse', {
-      url,
-      options,
-      session,
-    });
+    return this.request<BrowseResult>(
+      'POST',
+      '/v1/browse',
+      { url, options, session },
+      this.deriveRequestOptions(options)
+    );
   }
 
   /**
@@ -482,11 +511,12 @@ export class UnbrowserClient {
    * ```
    */
   async fetch(url: string, options?: BrowseOptions, session?: SessionData): Promise<BrowseResult> {
-    return this.request<BrowseResult>('POST', '/v1/fetch', {
-      url,
-      options,
-      session,
-    });
+    return this.request<BrowseResult>(
+      'POST',
+      '/v1/fetch',
+      { url, options, session },
+      this.deriveRequestOptions(options)
+    );
   }
 
   /**
@@ -528,11 +558,12 @@ export class UnbrowserClient {
     options?: BrowseOptions,
     session?: SessionData
   ): Promise<BatchResult> {
-    return this.request<BatchResult>('POST', '/v1/batch', {
-      urls,
-      options,
-      session,
-    });
+    return this.request<BatchResult>(
+      'POST',
+      '/v1/batch',
+      { urls, options, session },
+      this.deriveRequestOptions(options)
+    );
   }
 
   // ============================================
@@ -1479,22 +1510,30 @@ export class UnbrowserClient {
   /**
    * Make an authenticated request that returns the response directly.
    * Used for endpoints that don't wrap results in { success, data }.
+   *
+   * R1.sdk.1: callers may pass `requestTimeoutMs` to override the
+   * constructor default for a specific request — used by verb methods
+   * to derive a timeout from `options.maxLatencyMs + 30s` cushion so the
+   * SDK doesn't abort before the server's own budget is honored. They
+   * may also pass `disableRetries` to opt out of the retry loop when
+   * the caller asked for a long single attempt.
    */
   private async requestDirect<T>(
     method: string,
     path: string,
     body?: unknown,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; requestTimeoutMs?: number; disableRetries?: boolean }
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
+    const effectiveTimeoutMs = options?.requestTimeoutMs ?? this.timeout;
 
     let lastError: Error | null = null;
-    const attempts = this.retry ? this.maxRetries : 1;
+    const attempts = this.retry && !options?.disableRetries ? this.maxRetries : 1;
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+        const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs);
 
         const response = await fetch(url, {
           method,
@@ -1539,9 +1578,17 @@ export class UnbrowserClient {
           }
         }
 
-        // Don't retry on user abort
+        // Don't retry on user abort. Surface the effective timeout in the
+        // error message so the caller can tell whether it's a constructor
+        // default (60s) hit or a derived `maxLatencyMs + 30s` cushion.
         if (error instanceof Error && error.name === 'AbortError') {
-          throw new UnbrowserError('REQUEST_ABORTED', 'Request was aborted');
+          throw new UnbrowserError(
+            'REQUEST_ABORTED',
+            `Request aborted after ${effectiveTimeoutMs}ms (SDK-side). ` +
+              `If you set options.maxLatencyMs, ensure the SDK timeout exceeds it; ` +
+              `pass createUnbrowser({ timeout: <ms> }) or upgrade @unbrowser/cloud to a ` +
+              `version that derives requestTimeout from options.maxLatencyMs automatically.`
+          );
         }
 
         // Wait before retrying (exponential backoff)
@@ -1557,22 +1604,27 @@ export class UnbrowserClient {
 
   /**
    * Make an authenticated request to the API with retry logic.
+   *
+   * R1.sdk.1: callers may pass `requestTimeoutMs` and `disableRetries`
+   * to opt into the maxLatencyMs-aware per-request timeout coordination.
+   * See `requestDirect` for the same pattern.
    */
   private async request<T>(
     method: string,
     path: string,
     body?: unknown,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; requestTimeoutMs?: number; disableRetries?: boolean }
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
+    const effectiveTimeoutMs = options?.requestTimeoutMs ?? this.timeout;
 
     let lastError: Error | null = null;
-    const attempts = this.retry ? this.maxRetries : 1;
+    const attempts = this.retry && !options?.disableRetries ? this.maxRetries : 1;
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+        const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs);
 
         const response = await fetch(url, {
           method,
@@ -1618,9 +1670,17 @@ export class UnbrowserClient {
           }
         }
 
-        // Don't retry on user abort
+        // Don't retry on user abort. Name the effective timeout so the caller
+        // can distinguish a 60s constructor-default hit from a derived
+        // maxLatencyMs cushion.
         if (error instanceof Error && error.name === 'AbortError') {
-          throw new UnbrowserError('REQUEST_ABORTED', 'Request was aborted');
+          throw new UnbrowserError(
+            'REQUEST_ABORTED',
+            `Request aborted after ${effectiveTimeoutMs}ms (SDK-side). ` +
+              `If you set options.maxLatencyMs, ensure the SDK timeout exceeds it; ` +
+              `pass createUnbrowser({ timeout: <ms> }) or upgrade @unbrowser/cloud to a ` +
+              `version that derives requestTimeout from options.maxLatencyMs automatically.`
+          );
         }
 
         // Wait before retrying (exponential backoff)
