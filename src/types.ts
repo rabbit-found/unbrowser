@@ -157,7 +157,7 @@ export interface BrowseOptions {
    * - 'lightweight': Medium speed (~200-500ms), uses linkedom
    * - 'playwright': Slowest, highest cost (~2-5s), full browser
    */
-  maxCostTier?: 'intelligence' | 'lightweight' | 'playwright';
+  maxCostTier?: 'intelligence' | 'lightweight' | 'browser-run' | 'playwright';
 
   /**
    * Content verification options.
@@ -828,7 +828,7 @@ export interface ExecutionPlan {
   /**
    * The rendering tier that will be used.
    */
-  tier: 'intelligence' | 'lightweight' | 'playwright';
+  tier: 'intelligence' | 'lightweight' | 'browser-run' | 'playwright';
 
   /**
    * Human-readable explanation of why this plan was chosen.
@@ -863,7 +863,7 @@ export interface ExecutionStep {
   /**
    * Which tier this step uses.
    */
-  tier: 'intelligence' | 'lightweight' | 'playwright';
+  tier: 'intelligence' | 'lightweight' | 'browser-run' | 'playwright';
 
   /**
    * Expected duration in milliseconds.
