@@ -36,7 +36,7 @@ export interface BrowseOptions {
   /** Maximum latency allowed (will skip slower tiers) */
   maxLatencyMs?: number;
   /** Maximum cost tier to use */
-  maxCostTier?: 'intelligence' | 'lightweight' | 'playwright';
+  maxCostTier?: 'intelligence' | 'lightweight' | 'browser-run' | 'playwright';
   /** Verification options (COMP-015) */
   verify?: {
     /** Enable verification (default: true for basic mode) */
@@ -181,7 +181,7 @@ export interface ExecutionStep {
   order: number;
   action: string;
   description: string;
-  tier: 'intelligence' | 'lightweight' | 'playwright';
+  tier: 'intelligence' | 'lightweight' | 'browser-run' | 'playwright';
   expectedDuration: number; // milliseconds
   confidence: 'high' | 'medium' | 'low';
   reason?: string;
@@ -189,7 +189,7 @@ export interface ExecutionStep {
 
 export interface ExecutionPlan {
   steps: ExecutionStep[];
-  tier: 'intelligence' | 'lightweight' | 'playwright';
+  tier: 'intelligence' | 'lightweight' | 'browser-run' | 'playwright';
   reasoning: string;
   fallbackPlan?: ExecutionPlan;
 }
@@ -865,7 +865,7 @@ export class UnbrowserClient {
       stepNumber: number;
       success: boolean;
       duration: number;
-      tier?: 'intelligence' | 'lightweight' | 'playwright';
+      tier?: 'intelligence' | 'lightweight' | 'browser-run' | 'playwright';
       error?: string;
     }>;
   }> {
@@ -922,7 +922,7 @@ export class UnbrowserClient {
       description: string;
       userAnnotation?: string;
       importance: 'critical' | 'important' | 'optional';
-      tier?: 'intelligence' | 'lightweight' | 'playwright';
+      tier?: 'intelligence' | 'lightweight' | 'browser-run' | 'playwright';
       duration?: number;
       success: boolean;
     }>;

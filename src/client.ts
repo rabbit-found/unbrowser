@@ -738,7 +738,7 @@ export class UnbrowserClient {
       stepNumber: number;
       success: boolean;
       duration: number;
-      tier?: 'intelligence' | 'lightweight' | 'playwright';
+      tier?: 'intelligence' | 'lightweight' | 'browser-run' | 'playwright';
       error?: string;
     }>;
   }> {
@@ -801,7 +801,7 @@ export class UnbrowserClient {
       description: string;
       userAnnotation?: string;
       importance: 'critical' | 'important' | 'optional';
-      tier?: 'intelligence' | 'lightweight' | 'playwright';
+      tier?: 'intelligence' | 'lightweight' | 'browser-run' | 'playwright';
       duration?: number;
       success: boolean;
     }>;
