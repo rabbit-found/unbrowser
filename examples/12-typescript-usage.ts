@@ -32,11 +32,6 @@ import {
 
   // Session types
   type SessionHealth,
-
-  // Stealth
-  generateFingerprint,
-  type BrowserFingerprint,
-  BehavioralDelays,
 } from '../dist/index.js';
 
 // Type-safe configuration
@@ -106,13 +101,6 @@ async function main(): Promise<void> {
     // Session health check with types
     const health: SessionHealth = await browser.getSessionHealth('default');
     console.log(`Session healthy: ${health.isHealthy}`);
-
-    // Fingerprint generation with types
-    const fingerprint: BrowserFingerprint = generateFingerprint('example.com');
-    console.log(`Fingerprint UA: ${fingerprint.userAgent}`);
-
-    // Behavioral delay
-    await BehavioralDelays.sleep(100, 200);
 
     // Error handling with types
     try {

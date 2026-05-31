@@ -51,7 +51,6 @@ node examples/03-api-discovery.mjs
 | 04-session-management | Save and restore authenticated sessions |
 | 05-batch-browsing | Browse multiple URLs in parallel |
 | 06-content-extraction | Extract tables, links, and structured data |
-| 07-stealth-mode | Anti-bot evasion with fingerprint rotation |
 | 08-error-handling | Structured error handling and retry patterns |
 | 09-content-change-tracking | Monitor websites for content changes |
 | 10-procedural-memory | Skill learning and replay |

@@ -187,18 +187,18 @@ export const ERROR_RECOVERY: Record<ErrorCode, ErrorRecovery> = {
     canRetry: true,
     retryAfter: 30000,
     suggestion: 'Content was blocked by the target site. Try with different options.',
-    alternatives: ['Enable stealth mode', 'Use a session', 'Try a different time'],
+    alternatives: ['Use a session', 'Try a different time'],
   },
   CAPTCHA_DETECTED: {
     canRetry: true,
     retryAfter: 60000,
     suggestion: 'CAPTCHA detected. The site may be rate-limiting requests.',
-    alternatives: ['Use a session', 'Reduce request frequency', 'Enable stealth mode'],
+    alternatives: ['Use a session', 'Reduce request frequency'],
   },
   BOT_DETECTED: {
     canRetry: true,
     retryAfter: 60000,
-    suggestion: 'Bot detection triggered. Try enabling stealth mode.',
+    suggestion: 'Bot detection triggered. The site is blocking automated access.',
     alternatives: ['Use debug.visible to troubleshoot', 'Try with slower request rate'],
   },
 
