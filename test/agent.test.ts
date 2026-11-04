@@ -51,6 +51,18 @@ describe('toAgentPage', () => {
     expect(longMarkdown.slice(page.content.length)).toMatch(/^\s*\n\n/); // ends at a paragraph break
   });
 
+  it('falls back to a sentence break when there is no line break', () => {
+    const prose = 'Short sentence here. '.repeat(100);
+    const page = toAgentPage(browseResult({ content: { markdown: prose, text: '' } }), { maxChars: 1000 });
+    expect(page.content.endsWith('here.')).toBe(true);
+    expect(page.content.length).toBeLessThanOrEqual(1000);
+  });
+
+  it('copes with a result missing content and metadata', () => {
+    const page = toAgentPage({ url: 'u' } as any);
+    expect(page).toEqual({ url: 'u', title: '', content: '', truncated: false, tier: 'unknown', loadTimeMs: 0 });
+  });
+
   it('cuts hard when there is no break near the limit', () => {
     const page = toAgentPage(browseResult({ content: { markdown: 'x'.repeat(5000), text: '' } }), {
       maxChars: 100,
@@ -112,6 +124,12 @@ describe('browseForAgent', () => {
     expect(page.truncated).toBe(false);
   });
 
+  it('works with no options', async () => {
+    const { calls } = mockFetch(() => ok(browseResult()));
+    await client().browseForAgent('https://x.com');
+    expect(calls[0].body.options).toEqual({ contentType: 'markdown', includeTables: false, maxChars: 8001 });
+  });
+
   it('rejects an invalid budget without calling the API', async () => {
     const { calls } = mockFetch(() => ok(browseResult()));
     await expect(client().browseForAgent('https://x.com', { maxChars: 0 })).rejects.toThrow(
@@ -150,6 +168,12 @@ describe('batchForAgent', () => {
     const { calls } = mockFetch(() => ok({ totalTime: 0, results: [] }));
     await client().batchForAgent(['https://a.com'], { maxChars: 200, maxTotalChars: 10_000 });
     expect(calls[0].body.options.maxChars).toBe(201);
+  });
+
+  it('works with no options', async () => {
+    const { calls } = mockFetch(() => ok({ totalTime: 0, results: [] }));
+    await client().batchForAgent(['https://a.com']);
+    expect(calls[0].body.options.maxChars).toBe(8001);
   });
 
   it('returns immediately for an empty list', async () => {

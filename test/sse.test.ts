@@ -143,3 +143,87 @@ describe('researchWithProgress', () => {
     expect(result).toEqual({ answer: 42 });
   });
 });
+
+describe('researchWithProgress errors', () => {
+  it('sends the research options, including snippetsOnly', async () => {
+    const { calls } = mockFetch(() => sseResponse('event: result\ndata: {}\n\n'));
+    await client().researchWithProgress({ scope: 'q', maxSources: 2, snippetsOnly: true } as any, () => {});
+    expect(calls[0].path).toBe('/v1/research');
+    expect(calls[0].body).toEqual({ scope: 'q', maxSources: 2, snippetsOnly: true });
+  });
+
+  it('throws the server error event', async () => {
+    mockFetch(() => sseResponse('event: error\ndata: {"error":{"code":"TIMEOUT","message":"slow"}}\n\n'));
+    await expect(client().researchWithProgress({ scope: 'q' } as any, () => {})).rejects.toMatchObject({
+      code: 'TIMEOUT',
+    });
+  });
+
+  it('uses defaults for an error event without details', async () => {
+    mockFetch(() => sseResponse('event: error\ndata: {}\n\n'));
+    await expect(client().researchWithProgress({ scope: 'q' } as any, () => {})).rejects.toMatchObject({
+      code: 'SSE_ERROR',
+      message: 'Research failed',
+    });
+  });
+
+  it('throws SSE_ERROR when no result arrives', async () => {
+    mockFetch(() => sseResponse(': nothing\n\n'));
+    await expect(client().researchWithProgress({ scope: 'q' } as any, () => {})).rejects.toMatchObject({
+      code: 'SSE_ERROR',
+    });
+  });
+
+  it('keeps the structured error code on an HTTP error', async () => {
+    mockFetch(() => json({ error: { code: 'FORBIDDEN', message: 'no' } }, 403));
+    await expect(client().researchWithProgress({ scope: 'q' } as any, () => {})).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      statusCode: 403,
+    });
+  });
+
+  it('reports a non-JSON HTTP error as SSE_ERROR', async () => {
+    mockFetch(() => new Response('bad', { status: 500 }));
+    await expect(client().researchWithProgress({ scope: 'q' } as any, () => {})).rejects.toMatchObject({
+      code: 'SSE_ERROR',
+      statusCode: 500,
+    });
+  });
+
+  it('throws SSE_ERROR when the response has no body', async () => {
+    mockFetch(() => new Response(null, { status: 200 }));
+    await expect(client().researchWithProgress({ scope: 'q' } as any, () => {})).rejects.toMatchObject({
+      code: 'SSE_ERROR',
+    });
+    mockFetch(() => new Response(null, { status: 200 }));
+    await expect(client().browseWithProgress('https://x.com', () => {})).rejects.toMatchObject({
+      code: 'SSE_ERROR',
+    });
+  });
+
+  it('uses defaults for a browse error event without details', async () => {
+    mockFetch(() => sseResponse('event: error\ndata: {}\n\n'));
+    await expect(client().browseWithProgress('https://x.com', () => {})).rejects.toMatchObject({
+      code: 'SSE_ERROR',
+      message: 'Browse failed',
+    });
+  });
+
+  it('ignores unknown event types', async () => {
+    mockFetch(() => sseResponse('event: debug\ndata: {}\n\nevent: result\ndata: {"data":{"title":"t"}}\n\n'));
+    await expect(client().browseWithProgress('https://x.com', () => {})).resolves.toEqual({ title: 't' });
+  });
+});
+
+describe('edge cases', () => {
+  it('researchWithProgress throws SSE_ERROR on malformed JSON', async () => {
+    mockFetch(() => sseResponse('event: result\ndata: {nope\n\n'));
+    await expect(client().researchWithProgress({ scope: 'q' } as any, () => {})).rejects.toMatchObject({
+      code: 'SSE_ERROR',
+    });
+  });
+
+  it('treats a field line without a colon as an empty value', () => {
+    expect(parse(['data\ndata: x\n\n'])).toEqual([{ event: 'message', data: '\nx' }]);
+  });
+});
