@@ -58,6 +58,17 @@ import {
   type MethodInfo,
 } from './introspection.js';
 
+import {
+  resolveMaxChars,
+  toServerOptions,
+  toAgentPage,
+  toAgentBatch,
+  type AgentViewOptions,
+  type AgentBatchOptions,
+  type AgentPage,
+  type AgentBatchResult,
+} from './agent.js';
+
 /**
  * Official client for the Unbrowser cloud API.
  *
@@ -564,6 +575,89 @@ export class UnbrowserClient {
       { urls, options, session },
       this.deriveRequestOptions(options)
     );
+  }
+
+  // ============================================
+  // Agent-Ready Methods
+  // ============================================
+
+  /**
+   * Browse a URL and return only what a model needs.
+   *
+   * @description
+   * Returns a compact `AgentPage` (title, content, truncated flag, tier,
+   * load time) instead of the full `BrowseResult`, so an agent's context
+   * holds one copy of the page rather than markdown + text + HTML +
+   * metadata. The character budget is sent to the server as `maxChars`
+   * so oversized pages are trimmed at the source, and `truncated` tells
+   * the agent the page had more, so it does not re-fetch hoping for more.
+   *
+   * @param url - URL to browse
+   * @param options - Browse options plus `maxChars` (default 8000), `format`, `includeTables`
+   * @param session - Session data for authenticated browsing
+   * @returns Compact page view
+   *
+   * @example
+   * ```typescript
+   * const page = await client.browseForAgent('https://example.com', { maxChars: 4000 });
+   * // Safe to hand straight to a model
+   * return JSON.stringify(page);
+   * ```
+   */
+  async browseForAgent(
+    url: string,
+    options?: Omit<BrowseOptions, 'contentType'> & AgentViewOptions,
+    session?: SessionData
+  ): Promise<AgentPage> {
+    const maxChars = resolveMaxChars(options?.maxChars);
+    const result = await this.browse(url, toServerOptions(options, maxChars), session);
+    return toAgentPage(result, { ...options, maxChars });
+  }
+
+  /**
+   * Browse several URLs in one round trip and return compact pages.
+   *
+   * @description
+   * Uses the batch endpoint, so N pages cost one request rather than N
+   * agent tool calls, and returns compact `AgentPage` entries (or an error
+   * entry) in request order. Set `maxTotalChars` to cap the size of the
+   * whole result; each page then gets an equal share.
+   *
+   * @param urls - URLs to browse
+   * @param options - Browse options plus `maxChars`, `maxTotalChars`, `format`, `includeTables`
+   * @param session - Session data applied to all URLs
+   * @returns Compact pages and total server time
+   *
+   * @example
+   * ```typescript
+   * const { pages } = await client.batchForAgent(urls, { maxTotalChars: 20000 });
+   * for (const page of pages) {
+   *   if (isAgentPageError(page)) console.log(page.url, page.error.message);
+   *   else console.log(page.title, page.truncated);
+   * }
+   * ```
+   */
+  async batchForAgent(
+    urls: string[],
+    options?: Omit<BrowseOptions, 'contentType'> & AgentBatchOptions,
+    session?: SessionData
+  ): Promise<AgentBatchResult> {
+    if (urls.length === 0) return { pages: [], totalTimeMs: 0 };
+
+    let maxChars = resolveMaxChars(options?.maxChars);
+    if (options?.maxTotalChars !== undefined) {
+      const share = Math.floor(resolveMaxChars(options.maxTotalChars) / urls.length);
+      if (share < 1) {
+        throw new RangeError(
+          `maxTotalChars (${options.maxTotalChars}) is too small for ${urls.length} URLs`
+        );
+      }
+      maxChars = Math.min(maxChars, share);
+    }
+
+    const { maxTotalChars: _total, ...rest } = options ?? {};
+    const result = await this.batch(urls, toServerOptions(rest, maxChars), session);
+    return toAgentBatch(result, { ...rest, maxChars });
   }
 
   // ============================================

@@ -182,6 +182,29 @@ for (const endpoint of result.discovered) {
 }
 ```
 
+## Feeding Pages to an Agent
+
+`browse()` returns the page as markdown, text and (optionally) HTML, plus metadata. That's useful in code, but wasteful if it all ends up in a model's context. `browseForAgent()` and `batchForAgent()` return only what a model needs:
+
+```typescript
+const page = await client.browseForAgent('https://example.com', { maxChars: 4000 });
+// { url, title, content, truncated, tier, loadTimeMs }
+return JSON.stringify(page); // hand straight to the model
+
+// Several pages in one request, within one total budget
+const { pages } = await client.batchForAgent(urls, { maxTotalChars: 20000 });
+for (const p of pages) {
+  if (isAgentPageError(p)) console.log(p.url, p.error.message);
+  else console.log(p.title, p.truncated);
+}
+```
+
+- **Trimmed at the source.** The budget (default 8,000 chars per page) is sent to the server as `maxChars`, so oversized pages aren't transferred, and the cut lands on a paragraph or sentence break where possible.
+- **`truncated` is explicit.** The agent knows the page had more content, and that re-fetching it with the same budget returns the same text.
+- **One round trip for many pages.** `batchForAgent` uses the batch endpoint, and failed URLs come back as `{ url, error }` in request order.
+
+`toAgentPage(result, options)` converts a `BrowseResult` you already have.
+
 ## Workflow Recording
 
 Record and replay browsing workflows:
