@@ -8,6 +8,8 @@
  * @packageDocumentation
  */
 
+import { VERSION } from './version.js';
+
 /**
  * Description of an SDK method for LLM discovery.
  *
@@ -367,6 +369,87 @@ for (const item of result.results) {
       'Scrape multiple product pages',
       'Crawl a list of articles',
       'Compare content across sites',
+    ],
+  },
+
+  browseForAgent: {
+    name: 'browseForAgent',
+    description: 'Browse a URL and return a compact, model-ready page (no duplicate formats or raw metadata).',
+    details:
+      'Prefer this over browse() when the result goes into an LLM context. Returns { url, title, content, truncated, tier, loadTimeMs }. The character budget is sent to the server so trimming happens at the source; truncated=true means the page had more content, and re-fetching with the same budget returns the same content.',
+    parameters: [
+      {
+        name: 'url',
+        type: 'string',
+        required: true,
+        description: 'URL to browse.',
+      },
+      {
+        name: 'options',
+        type: "BrowseOptions & { maxChars?: number; format?: 'markdown' | 'text'; includeTables?: boolean }",
+        required: false,
+        description: 'Browse options plus a per-page character budget.',
+        default: '{ maxChars: 8000, format: "markdown" }',
+      },
+      {
+        name: 'session',
+        type: 'SessionData',
+        required: false,
+        description: 'Session data for authenticated browsing.',
+      },
+    ],
+    returns: {
+      type: 'Promise<AgentPage>',
+      description: 'Compact page view.',
+    },
+    example: `const page = await client.browseForAgent('https://example.com', { maxChars: 4000 });
+console.log(page.title, page.truncated);
+console.log(page.content);`,
+    related: ['browse', 'batchForAgent'],
+    useCases: [
+      'Return page content from an agent tool call',
+      'Keep agent context small across many page reads',
+    ],
+  },
+
+  batchForAgent: {
+    name: 'batchForAgent',
+    description: 'Browse several URLs in one request and return compact, model-ready pages.',
+    details:
+      'One round trip for N pages instead of N tool calls. Returns pages in request order; failed URLs appear as { url, error }. maxTotalChars caps the whole result by giving each page an equal share.',
+    parameters: [
+      {
+        name: 'urls',
+        type: 'string[]',
+        required: true,
+        description: 'URLs to browse.',
+      },
+      {
+        name: 'options',
+        type: "BrowseOptions & { maxChars?: number; maxTotalChars?: number; format?: 'markdown' | 'text'; includeTables?: boolean }",
+        required: false,
+        description: 'Browse options plus per-page and total character budgets.',
+      },
+      {
+        name: 'session',
+        type: 'SessionData',
+        required: false,
+        description: 'Session data applied to all URLs.',
+      },
+    ],
+    returns: {
+      type: 'Promise<AgentBatchResult>',
+      description: '{ pages: Array<AgentPage | AgentPageError>, totalTimeMs }',
+    },
+    example: `const { pages } = await client.batchForAgent(urls, { maxTotalChars: 20000 });
+for (const page of pages) {
+  if ('error' in page) console.log(page.url, page.error.message);
+  else console.log(page.title, page.content.length);
+}`,
+    related: ['batch', 'browseForAgent'],
+    useCases: [
+      'Read several search results in one agent step',
+      'Compare pages within a fixed context budget',
     ],
   },
 
@@ -886,14 +969,22 @@ if (status.status.searchConfigured) {
 export function getCapabilities(): SDKCapabilities {
   return {
     name: '@unbrowser/cloud',
-    version: '0.1.0-alpha.1',
+    version: VERSION,
     description:
       'Official SDK for the Unbrowser cloud API. Provides intelligent web browsing with learned patterns, API discovery, and progressive optimization.',
     categories: [
       {
         name: 'Content Extraction',
         description: 'Browse URLs and extract content as markdown, text, or HTML.',
-        methods: ['browse', 'previewBrowse', 'browseWithProgress', 'fetch', 'batch'],
+        methods: [
+          'browse',
+          'browseForAgent',
+          'previewBrowse',
+          'browseWithProgress',
+          'fetch',
+          'batch',
+          'batchForAgent',
+        ],
       },
       {
         name: 'Intelligence',

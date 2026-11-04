@@ -5,6 +5,8 @@
  * Provides a simple interface for browsing URLs via the cloud service.
  */
 
+import { readSseStream } from './sse.js';
+
 // ============================================
 // Types
 // ============================================
@@ -667,52 +669,44 @@ export class UnbrowserClient {
 
     if (!response.ok) {
       const text = await response.text();
+      let body: { error?: { code?: string; message?: string } } | undefined;
       try {
-        const error = JSON.parse(text);
-        throw new UnbrowserError(error.error?.code || 'HTTP_ERROR', error.error?.message || `HTTP ${response.status}`);
+        body = JSON.parse(text);
       } catch {
         throw new UnbrowserError('HTTP_ERROR', `HTTP ${response.status}: ${text}`);
       }
+      throw new UnbrowserError(
+        body?.error?.code || 'HTTP_ERROR',
+        body?.error?.message || `HTTP ${response.status}`
+      );
     }
 
-    const reader = response.body?.getReader();
-    if (!reader) {
+    if (!response.body) {
       throw new UnbrowserError('SSE_ERROR', 'Failed to get response reader');
     }
 
-    const decoder = new TextDecoder();
-    let buffer = '';
     let result: BrowseResult | null = null;
     let error: UnbrowserError | null = null;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          const eventType = line.slice(7).trim();
-
-          // Read the data line
-          const dataLineIndex = lines.indexOf(line) + 1;
-          if (dataLineIndex < lines.length && lines[dataLineIndex].startsWith('data: ')) {
-            const data = JSON.parse(lines[dataLineIndex].slice(6));
-
-            if (eventType === 'progress') {
-              onProgress(data as ProgressEvent);
-            } else if (eventType === 'result') {
-              result = data.data as BrowseResult;
-            } else if (eventType === 'error') {
-              error = new UnbrowserError(data.error?.code || 'BROWSE_ERROR', data.error?.message || 'Browse failed');
-            }
-          }
-        }
+    await readSseStream(response.body, ({ event, data: raw }) => {
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        throw new UnbrowserError('SSE_ERROR', `Malformed ${event} event from server`);
       }
-    }
+
+      if (event === 'progress') {
+        onProgress(data as ProgressEvent);
+      } else if (event === 'result') {
+        result = data.data as BrowseResult;
+      } else if (event === 'error') {
+        error = new UnbrowserError(
+          data.error?.code || 'BROWSE_ERROR',
+          data.error?.message || 'Browse failed'
+        );
+      }
+    });
 
     if (error) throw error;
     if (!result) throw new UnbrowserError('SSE_ERROR', 'No result received');

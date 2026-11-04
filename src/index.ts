@@ -59,13 +59,29 @@
 /**
  * SDK version
  */
-export const VERSION = '0.1.0-alpha.8';
+export { VERSION } from './version.js';
 
 // ============================================
 // Client
 // ============================================
 
 export { UnbrowserClient, createUnbrowser } from './client.js';
+
+// ============================================
+// Agent-ready output
+// ============================================
+
+export {
+  toAgentPage,
+  toAgentBatch,
+  isAgentPageError,
+  DEFAULT_AGENT_MAX_CHARS,
+  type AgentViewOptions,
+  type AgentBatchOptions,
+  type AgentPage,
+  type AgentPageError,
+  type AgentBatchResult,
+} from './agent.js';
 
 // ============================================
 // Errors

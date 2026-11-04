@@ -58,6 +58,43 @@ import {
   type MethodInfo,
 } from './introspection.js';
 
+import {
+  resolveMaxChars,
+  toServerOptions,
+  toAgentPage,
+  toAgentBatch,
+  type AgentViewOptions,
+  type AgentBatchOptions,
+  type AgentPage,
+  type AgentBatchResult,
+} from './agent.js';
+
+import { readSseStream } from './sse.js';
+
+/** Per-request transport options. */
+interface TransportOptions {
+  signal?: AbortSignal;
+  requestTimeoutMs?: number;
+  disableRetries?: boolean;
+}
+
+/** Error for a response body that is not a JSON object (e.g. a proxy's HTML error page). */
+function nonJsonError(status: number, text: string): UnbrowserError {
+  const code: ErrorCode =
+    status === 429
+      ? 'RATE_LIMITED'
+      : status === 502 || status === 503 || status === 504
+        ? 'SERVICE_UNAVAILABLE'
+        : status >= 500
+          ? 'INTERNAL_ERROR'
+          : 'UNKNOWN_ERROR';
+  const snippet = text.length > 200 ? `${text.slice(0, 200)}…` : text;
+  return new UnbrowserError(code, `HTTP ${status}: expected JSON, got: ${snippet}`, {
+    statusCode: status,
+  });
+}
+
+
 /**
  * Official client for the Unbrowser cloud API.
  *
@@ -136,10 +173,11 @@ export class UnbrowserClient {
     }
 
     this.apiKey = config.apiKey;
-    this.baseUrl = (config.baseUrl || 'https://api.unbrowser.ai').replace(/\/$/, '');
+    this.baseUrl = (config.baseUrl || 'https://api.unbrowser.ai').replace(/\/+$/, '');
     this.timeout = config.timeout || 60000;
     this.retry = config.retry !== false;
-    this.maxRetries = config.maxRetries || 3;
+    // Total attempts per request; 0 or less means a single attempt (no retries).
+    this.maxRetries = Math.max(1, Math.floor(config.maxRetries ?? 3));
   }
 
   /**
@@ -437,54 +475,43 @@ export class UnbrowserClient {
 
     if (!response.ok) {
       const text = await response.text();
+      let body: { error?: { code?: string; message?: string } } | undefined;
       try {
-        const body = JSON.parse(text);
-        throw UnbrowserError.fromResponse(response, body);
+        body = JSON.parse(text);
       } catch {
-        throw new UnbrowserError('SSE_ERROR', `HTTP ${response.status}: ${text}`);
+        throw new UnbrowserError('SSE_ERROR', `HTTP ${response.status}: ${text}`, {
+          statusCode: response.status,
+        });
       }
+      throw UnbrowserError.fromResponse(response, body);
     }
 
-    const reader = response.body?.getReader();
-    if (!reader) {
+    if (!response.body) {
       throw new UnbrowserError('SSE_ERROR', 'Failed to get response reader');
     }
 
-    const decoder = new TextDecoder();
-    let buffer = '';
     let result: BrowseResult | null = null;
     let error: UnbrowserError | null = null;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          const eventType = line.slice(7).trim();
-          const dataLineIndex = lines.indexOf(line) + 1;
-
-          if (dataLineIndex < lines.length && lines[dataLineIndex].startsWith('data: ')) {
-            const data = JSON.parse(lines[dataLineIndex].slice(6));
-
-            if (eventType === 'progress') {
-              onProgress(data as ProgressEvent);
-            } else if (eventType === 'result') {
-              result = data.data as BrowseResult;
-            } else if (eventType === 'error') {
-              error = new UnbrowserError(
-                data.error?.code || 'SSE_ERROR',
-                data.error?.message || 'Browse failed'
-              );
-            }
-          }
-        }
+    await readSseStream(response.body, ({ event, data: raw }) => {
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        throw new UnbrowserError('SSE_ERROR', `Malformed ${event} event from server`);
       }
-    }
+
+      if (event === 'progress') {
+        onProgress(data as ProgressEvent);
+      } else if (event === 'result') {
+        result = data.data as BrowseResult;
+      } else if (event === 'error') {
+        error = new UnbrowserError(
+          data.error?.code || 'SSE_ERROR',
+          data.error?.message || 'Browse failed'
+        );
+      }
+    });
 
     if (error) throw error;
     if (!result) throw new UnbrowserError('SSE_ERROR', 'No result received');
@@ -564,6 +591,89 @@ export class UnbrowserClient {
       { urls, options, session },
       this.deriveRequestOptions(options)
     );
+  }
+
+  // ============================================
+  // Agent-Ready Methods
+  // ============================================
+
+  /**
+   * Browse a URL and return only what a model needs.
+   *
+   * @description
+   * Returns a compact `AgentPage` (title, content, truncated flag, tier,
+   * load time) instead of the full `BrowseResult`, so an agent's context
+   * holds one copy of the page rather than markdown + text + HTML +
+   * metadata. The character budget is sent to the server as `maxChars`
+   * so oversized pages are trimmed at the source, and `truncated` tells
+   * the agent the page had more, so it does not re-fetch hoping for more.
+   *
+   * @param url - URL to browse
+   * @param options - Browse options plus `maxChars` (default 8000), `format`, `includeTables`
+   * @param session - Session data for authenticated browsing
+   * @returns Compact page view
+   *
+   * @example
+   * ```typescript
+   * const page = await client.browseForAgent('https://example.com', { maxChars: 4000 });
+   * // Safe to hand straight to a model
+   * return JSON.stringify(page);
+   * ```
+   */
+  async browseForAgent(
+    url: string,
+    options?: Omit<BrowseOptions, 'contentType'> & AgentViewOptions,
+    session?: SessionData
+  ): Promise<AgentPage> {
+    const maxChars = resolveMaxChars(options?.maxChars);
+    const result = await this.browse(url, toServerOptions(options, maxChars), session);
+    return toAgentPage(result, { ...options, maxChars });
+  }
+
+  /**
+   * Browse several URLs in one round trip and return compact pages.
+   *
+   * @description
+   * Uses the batch endpoint, so N pages cost one request rather than N
+   * agent tool calls, and returns compact `AgentPage` entries (or an error
+   * entry) in request order. Set `maxTotalChars` to cap the size of the
+   * whole result; each page then gets an equal share.
+   *
+   * @param urls - URLs to browse
+   * @param options - Browse options plus `maxChars`, `maxTotalChars`, `format`, `includeTables`
+   * @param session - Session data applied to all URLs
+   * @returns Compact pages and total server time
+   *
+   * @example
+   * ```typescript
+   * const { pages } = await client.batchForAgent(urls, { maxTotalChars: 20000 });
+   * for (const page of pages) {
+   *   if (isAgentPageError(page)) console.log(page.url, page.error.message);
+   *   else console.log(page.title, page.truncated);
+   * }
+   * ```
+   */
+  async batchForAgent(
+    urls: string[],
+    options?: Omit<BrowseOptions, 'contentType'> & AgentBatchOptions,
+    session?: SessionData
+  ): Promise<AgentBatchResult> {
+    if (urls.length === 0) return { pages: [], totalTimeMs: 0 };
+
+    let maxChars = resolveMaxChars(options?.maxChars);
+    if (options?.maxTotalChars !== undefined) {
+      const share = Math.floor(resolveMaxChars(options.maxTotalChars) / urls.length);
+      if (share < 1) {
+        throw new RangeError(
+          `maxTotalChars (${options.maxTotalChars}) is too small for ${urls.length} URLs`
+        );
+      }
+      maxChars = Math.min(maxChars, share);
+    }
+
+    const { maxTotalChars: _total, ...rest } = options ?? {};
+    const result = await this.batch(urls, toServerOptions(rest, maxChars), session);
+    return toAgentBatch(result, { ...rest, maxChars });
   }
 
   // ============================================
@@ -703,7 +813,7 @@ export class UnbrowserClient {
     steps: number;
     estimatedDuration: number;
   } | null> {
-    return this.request('POST', `/v1/workflows/record/${recordingId}/stop`, { save });
+    return this.request('POST', `/v1/workflows/record/${encodeURIComponent(recordingId)}/stop`, { save });
   }
 
   /**
@@ -725,7 +835,7 @@ export class UnbrowserClient {
       importance?: 'critical' | 'important' | 'optional';
     }
   ): Promise<{ recordingId: string; stepNumber: number; annotated: boolean }> {
-    return this.request('POST', `/v1/workflows/record/${recordingId}/annotate`, annotation);
+    return this.request('POST', `/v1/workflows/record/${encodeURIComponent(recordingId)}/annotate`, annotation);
   }
 
   /**
@@ -773,7 +883,7 @@ export class UnbrowserClient {
       error?: string;
     }>;
   }> {
-    return this.request('POST', `/v1/workflows/${workflowId}/replay`, { variables });
+    return this.request('POST', `/v1/workflows/${encodeURIComponent(workflowId)}/replay`, { variables });
   }
 
   /**
@@ -839,7 +949,7 @@ export class UnbrowserClient {
     createdAt: string;
     updatedAt: string;
   }> {
-    return this.request('GET', `/v1/workflows/${workflowId}`);
+    return this.request('GET', `/v1/workflows/${encodeURIComponent(workflowId)}`);
   }
 
   /**
@@ -849,7 +959,7 @@ export class UnbrowserClient {
    * @returns Deletion confirmation
    */
   async deleteWorkflow(workflowId: string): Promise<{ workflowId: string; deleted: boolean }> {
-    return this.request('DELETE', `/v1/workflows/${workflowId}`);
+    return this.request('DELETE', `/v1/workflows/${encodeURIComponent(workflowId)}`);
   }
 
   // ============================================
@@ -1186,90 +1296,49 @@ export class UnbrowserClient {
         language: options.language,
         preferredDomains: options.preferredDomains,
         previousResult: options.previousResult,
+        snippetsOnly: options.snippetsOnly,
       }),
     });
 
     if (!response.ok) {
       const text = await response.text();
+      let body: { error?: { code?: string; message?: string } } | undefined;
       try {
-        const body = JSON.parse(text);
-        throw UnbrowserError.fromResponse(response, body);
+        body = JSON.parse(text);
       } catch {
-        throw new UnbrowserError('SSE_ERROR', `HTTP ${response.status}: ${text}`);
+        throw new UnbrowserError('SSE_ERROR', `HTTP ${response.status}: ${text}`, {
+          statusCode: response.status,
+        });
       }
+      throw UnbrowserError.fromResponse(response, body);
     }
 
-    const reader = response.body?.getReader();
-    if (!reader) {
+    if (!response.body) {
       throw new UnbrowserError('SSE_ERROR', 'Failed to get response reader');
     }
 
-    const decoder = new TextDecoder();
-    let buffer = '';
     let result: ResearchResult | null = null;
     let error: UnbrowserError | null = null;
 
-    // Helper function to parse SSE lines
-    const parseLines = (lines: string[]) => {
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.startsWith('event: ')) {
-          const eventType = line.slice(7).trim();
-
-          // Look for the data line (might be next line or same batch)
-          let dataLine: string | undefined;
-          if (i + 1 < lines.length && lines[i + 1].startsWith('data: ')) {
-            dataLine = lines[i + 1];
-          }
-
-          if (dataLine) {
-            const data = JSON.parse(dataLine.slice(6));
-
-            if (eventType === 'progress') {
-              onProgress(data as ResearchProgressEvent);
-            } else if (eventType === 'result') {
-              result = data as ResearchResult;
-            } else if (eventType === 'error') {
-              error = new UnbrowserError(
-                data.error?.code || 'SSE_ERROR',
-                data.error?.message || 'Research failed'
-              );
-            }
-          }
-        }
-      }
-    };
-
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) {
-        // Process any remaining buffer content when stream ends
-        if (buffer.trim()) {
-          // Debug: log remaining buffer
-          // console.log('[SSE DEBUG] Final buffer:', JSON.stringify(buffer));
-          const remainingLines = buffer.split('\n');
-          // console.log('[SSE DEBUG] Remaining lines:', remainingLines.length, remainingLines.map(l => l.slice(0, 50)));
-          parseLines(remainingLines);
-        }
-        break;
+    await readSseStream(response.body, ({ event, data: raw }) => {
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        throw new UnbrowserError('SSE_ERROR', `Malformed ${event} event from server`);
       }
 
-      buffer += decoder.decode(value, { stream: true });
-
-      // SSE events are separated by double newlines
-      // Split on \n\n to get complete events
-      const events = buffer.split('\n\n');
-
-      // Keep the last part in buffer (might be incomplete)
-      buffer = events.pop() || '';
-
-      // Process complete events
-      for (const event of events) {
-        const lines = event.split('\n');
-        parseLines(lines);
+      if (event === 'progress') {
+        onProgress(data as ResearchProgressEvent);
+      } else if (event === 'result') {
+        result = data as ResearchResult;
+      } else if (event === 'error') {
+        error = new UnbrowserError(
+          data.error?.code || 'SSE_ERROR',
+          data.error?.message || 'Research failed'
+        );
       }
-    }
+    });
 
     if (error) throw error;
     if (!result) throw new UnbrowserError('SSE_ERROR', 'No result received');
@@ -1508,8 +1577,33 @@ export class UnbrowserClient {
   // ============================================
 
   /**
-   * Make an authenticated request that returns the response directly.
+   * Make an authenticated request that returns the response body directly.
    * Used for endpoints that don't wrap results in { success, data }.
+   */
+  private requestDirect<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    options?: TransportOptions
+  ): Promise<T> {
+    return this.send<T>(method, path, body, options, false);
+  }
+
+  /**
+   * Make an authenticated request to an endpoint that wraps its result in
+   * { success, data } and return `data`.
+   */
+  private request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    options?: TransportOptions
+  ): Promise<T> {
+    return this.send<T>(method, path, body, options, true);
+  }
+
+  /**
+   * Shared transport with timeout and retry handling.
    *
    * R1.sdk.1: callers may pass `requestTimeoutMs` to override the
    * constructor default for a specific request — used by verb methods
@@ -1517,115 +1611,27 @@ export class UnbrowserClient {
    * SDK doesn't abort before the server's own budget is honored. They
    * may also pass `disableRetries` to opt out of the retry loop when
    * the caller asked for a long single attempt.
-   */
-  private async requestDirect<T>(
-    method: string,
-    path: string,
-    body?: unknown,
-    options?: { signal?: AbortSignal; requestTimeoutMs?: number; disableRetries?: boolean }
-  ): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    const effectiveTimeoutMs = options?.requestTimeoutMs ?? this.timeout;
-
-    let lastError: Error | null = null;
-    const attempts = this.retry && !options?.disableRetries ? this.maxRetries : 1;
-
-    for (let attempt = 1; attempt <= attempts; attempt++) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs);
-
-        const response = await fetch(url, {
-          method,
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.apiKey}`,
-          },
-          body: body ? JSON.stringify(body) : undefined,
-          signal: options?.signal || controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        const result = (await response.json()) as T & {
-          success?: boolean;
-          error?: { code: string; message: string };
-        };
-
-        // Check for error response
-        if (result.success === false && result.error) {
-          throw new UnbrowserError(result.error.code as ErrorCode, result.error.message, {
-            statusCode: response.status,
-          });
-        }
-
-        return result;
-      } catch (error) {
-        lastError = error as Error;
-
-        // Don't retry on auth errors or bad requests
-        if (error instanceof UnbrowserError) {
-          const nonRetryable: ErrorCode[] = [
-            'UNAUTHORIZED',
-            'FORBIDDEN',
-            'INVALID_REQUEST',
-            'INVALID_URL',
-            'MISSING_API_KEY',
-            'INVALID_API_KEY',
-          ];
-          if (nonRetryable.includes(error.code)) {
-            throw error;
-          }
-        }
-
-        // Don't retry on user abort. Surface the effective timeout in the
-        // error message so the caller can tell whether it's a constructor
-        // default (60s) hit or a derived `maxLatencyMs + 30s` cushion.
-        if (error instanceof Error && error.name === 'AbortError') {
-          throw new UnbrowserError(
-            'REQUEST_ABORTED',
-            `Request aborted after ${effectiveTimeoutMs}ms (SDK-side). ` +
-              `If you set options.maxLatencyMs, ensure the SDK timeout exceeds it; ` +
-              `pass createUnbrowser({ timeout: <ms> }) or upgrade @unbrowser/cloud to a ` +
-              `version that derives requestTimeout from options.maxLatencyMs automatically.`
-          );
-        }
-
-        // Wait before retrying (exponential backoff)
-        if (attempt < attempts) {
-          const delay = Math.min(Math.pow(2, attempt) * 1000, 30000);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-        }
-      }
-    }
-
-    throw lastError || new UnbrowserError('UNKNOWN_ERROR', 'Request failed');
-  }
-
-  /**
-   * Make an authenticated request to the API with retry logic.
    *
-   * R1.sdk.1: callers may pass `requestTimeoutMs` and `disableRetries`
-   * to opt into the maxLatencyMs-aware per-request timeout coordination.
-   * See `requestDirect` for the same pattern.
+   * Every failure surfaces as an `UnbrowserError`. Errors whose recovery
+   * guidance says `canRetry: false` are not retried.
    */
-  private async request<T>(
+  private async send<T>(
     method: string,
     path: string,
-    body?: unknown,
-    options?: { signal?: AbortSignal; requestTimeoutMs?: number; disableRetries?: boolean }
+    body: unknown,
+    options: TransportOptions | undefined,
+    unwrap: boolean
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const effectiveTimeoutMs = options?.requestTimeoutMs ?? this.timeout;
-
-    let lastError: Error | null = null;
     const attempts = this.retry && !options?.disableRetries ? this.maxRetries : 1;
+    let lastError: UnbrowserError | null = null;
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs);
 
+      try {
         const response = await fetch(url, {
           method,
           headers: {
@@ -1636,43 +1642,28 @@ export class UnbrowserClient {
           signal: options?.signal || controller.signal,
         });
 
-        clearTimeout(timeoutId);
+        const text = await response.text();
+        let result: (T & { success?: boolean; data?: T; error?: { code: string; message: string } }) | undefined;
+        try {
+          result = JSON.parse(text);
+        } catch {
+          throw nonJsonError(response.status, text);
+        }
+        if (result === null || typeof result !== 'object') {
+          throw nonJsonError(response.status, text);
+        }
 
-        const result = (await response.json()) as {
-          success: boolean;
-          data?: T;
-          error?: { code: string; message: string };
-        };
-
-        if (!result.success) {
+        if (unwrap ? !result.success : result.success === false && result.error) {
           const error = result.error || { code: 'UNKNOWN_ERROR', message: 'Unknown error' };
           throw new UnbrowserError(error.code as ErrorCode, error.message, {
             statusCode: response.status,
           });
         }
 
-        return result.data as T;
+        return unwrap ? (result.data as T) : (result as T);
       } catch (error) {
-        lastError = error as Error;
-
-        // Don't retry on auth errors or bad requests
-        if (error instanceof UnbrowserError) {
-          const nonRetryable: ErrorCode[] = [
-            'UNAUTHORIZED',
-            'FORBIDDEN',
-            'INVALID_REQUEST',
-            'INVALID_URL',
-            'MISSING_API_KEY',
-            'INVALID_API_KEY',
-          ];
-          if (nonRetryable.includes(error.code)) {
-            throw error;
-          }
-        }
-
-        // Don't retry on user abort. Name the effective timeout so the caller
-        // can distinguish a 60s constructor-default hit from a derived
-        // maxLatencyMs cushion.
+        // Name the effective timeout so the caller can distinguish a 60s
+        // constructor-default hit from a derived maxLatencyMs cushion.
         if (error instanceof Error && error.name === 'AbortError') {
           throw new UnbrowserError(
             'REQUEST_ABORTED',
@@ -1683,15 +1674,28 @@ export class UnbrowserClient {
           );
         }
 
-        // Wait before retrying (exponential backoff)
+        lastError =
+          error instanceof UnbrowserError
+            ? error
+            : new UnbrowserError(
+                'NETWORK_ERROR',
+                `Request to ${path} failed: ${error instanceof Error ? error.message : String(error)}`,
+                { cause: error instanceof Error ? error : undefined }
+              );
+
+        // Errors the SDK documents as non-retryable (auth, quota, bad input).
+        if (lastError.recovery.canRetry === false) throw lastError;
+
         if (attempt < attempts) {
           const delay = Math.min(Math.pow(2, attempt) * 1000, 30000);
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
 
-    throw lastError || new UnbrowserError('UNKNOWN_ERROR', 'Request failed');
+    throw lastError ?? new UnbrowserError('UNKNOWN_ERROR', 'Request failed');
   }
 }
 
