@@ -59,7 +59,7 @@
 /**
  * SDK version
  */
-export const VERSION = '0.1.0-alpha.8';
+export { VERSION } from './version.js';
 
 // ============================================
 // Client

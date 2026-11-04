@@ -8,6 +8,8 @@
  * @packageDocumentation
  */
 
+import { VERSION } from './version.js';
+
 /**
  * Description of an SDK method for LLM discovery.
  *
@@ -967,7 +969,7 @@ if (status.status.searchConfigured) {
 export function getCapabilities(): SDKCapabilities {
   return {
     name: '@unbrowser/cloud',
-    version: '0.1.0-alpha.1',
+    version: VERSION,
     description:
       'Official SDK for the Unbrowser cloud API. Provides intelligent web browsing with learned patterns, API discovery, and progressive optimization.',
     categories: [

@@ -21,7 +21,8 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
-    "prepublishOnly": "npm run clean && npm run build"
+    "check-version": "node scripts/check-version.mjs",
+    "prepublishOnly": "npm run check-version && npm run clean && npm run build"
   },
   "keywords": [
     "unbrowser",
