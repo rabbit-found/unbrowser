@@ -376,6 +376,18 @@ const llmsTxt = generateLlmsTxt();
 - **Dashboard**: https://www.unbrowser.ai/dashboard
 - **Status**: https://status.unbrowser.ai
 
+## Development
+
+```bash
+npm install
+npm test            # run the test suite once (vitest)
+npm run test:watch  # re-run on change
+npm run typecheck   # type-check src and tests
+npm run build       # compile to dist/
+```
+
+Tests live in `test/` and mock `fetch`, so they need no API key or network. CI runs check-version, typecheck, test and build on Node 18, 20 and 22.
+
 ## License
 
 MIT
