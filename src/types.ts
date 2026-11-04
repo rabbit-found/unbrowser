@@ -66,8 +66,9 @@ export interface UnbrowserConfig {
   retry?: boolean;
 
   /**
-   * Maximum number of retry attempts for failed requests.
-   * Only applies when `retry` is true.
+   * Maximum number of attempts per request, including the first one.
+   * Only applies when `retry` is true. A value of 1 or less means a single
+   * attempt (no retries).
    * @default 3
    */
   maxRetries?: number;

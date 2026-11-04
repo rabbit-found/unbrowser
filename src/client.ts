@@ -71,6 +71,30 @@ import {
 
 import { readSseStream } from './sse.js';
 
+/** Per-request transport options. */
+interface TransportOptions {
+  signal?: AbortSignal;
+  requestTimeoutMs?: number;
+  disableRetries?: boolean;
+}
+
+/** Error for a response body that is not a JSON object (e.g. a proxy's HTML error page). */
+function nonJsonError(status: number, text: string): UnbrowserError {
+  const code: ErrorCode =
+    status === 429
+      ? 'RATE_LIMITED'
+      : status === 502 || status === 503 || status === 504
+        ? 'SERVICE_UNAVAILABLE'
+        : status >= 500
+          ? 'INTERNAL_ERROR'
+          : 'UNKNOWN_ERROR';
+  const snippet = text.length > 200 ? `${text.slice(0, 200)}…` : text;
+  return new UnbrowserError(code, `HTTP ${status}: expected JSON, got: ${snippet}`, {
+    statusCode: status,
+  });
+}
+
+
 /**
  * Official client for the Unbrowser cloud API.
  *
@@ -149,10 +173,11 @@ export class UnbrowserClient {
     }
 
     this.apiKey = config.apiKey;
-    this.baseUrl = (config.baseUrl || 'https://api.unbrowser.ai').replace(/\/$/, '');
+    this.baseUrl = (config.baseUrl || 'https://api.unbrowser.ai').replace(/\/+$/, '');
     this.timeout = config.timeout || 60000;
     this.retry = config.retry !== false;
-    this.maxRetries = config.maxRetries || 3;
+    // Total attempts per request; 0 or less means a single attempt (no retries).
+    this.maxRetries = Math.max(1, Math.floor(config.maxRetries ?? 3));
   }
 
   /**
@@ -788,7 +813,7 @@ export class UnbrowserClient {
     steps: number;
     estimatedDuration: number;
   } | null> {
-    return this.request('POST', `/v1/workflows/record/${recordingId}/stop`, { save });
+    return this.request('POST', `/v1/workflows/record/${encodeURIComponent(recordingId)}/stop`, { save });
   }
 
   /**
@@ -810,7 +835,7 @@ export class UnbrowserClient {
       importance?: 'critical' | 'important' | 'optional';
     }
   ): Promise<{ recordingId: string; stepNumber: number; annotated: boolean }> {
-    return this.request('POST', `/v1/workflows/record/${recordingId}/annotate`, annotation);
+    return this.request('POST', `/v1/workflows/record/${encodeURIComponent(recordingId)}/annotate`, annotation);
   }
 
   /**
@@ -858,7 +883,7 @@ export class UnbrowserClient {
       error?: string;
     }>;
   }> {
-    return this.request('POST', `/v1/workflows/${workflowId}/replay`, { variables });
+    return this.request('POST', `/v1/workflows/${encodeURIComponent(workflowId)}/replay`, { variables });
   }
 
   /**
@@ -924,7 +949,7 @@ export class UnbrowserClient {
     createdAt: string;
     updatedAt: string;
   }> {
-    return this.request('GET', `/v1/workflows/${workflowId}`);
+    return this.request('GET', `/v1/workflows/${encodeURIComponent(workflowId)}`);
   }
 
   /**
@@ -934,7 +959,7 @@ export class UnbrowserClient {
    * @returns Deletion confirmation
    */
   async deleteWorkflow(workflowId: string): Promise<{ workflowId: string; deleted: boolean }> {
-    return this.request('DELETE', `/v1/workflows/${workflowId}`);
+    return this.request('DELETE', `/v1/workflows/${encodeURIComponent(workflowId)}`);
   }
 
   // ============================================
@@ -1271,6 +1296,7 @@ export class UnbrowserClient {
         language: options.language,
         preferredDomains: options.preferredDomains,
         previousResult: options.previousResult,
+        snippetsOnly: options.snippetsOnly,
       }),
     });
 
@@ -1551,8 +1577,33 @@ export class UnbrowserClient {
   // ============================================
 
   /**
-   * Make an authenticated request that returns the response directly.
+   * Make an authenticated request that returns the response body directly.
    * Used for endpoints that don't wrap results in { success, data }.
+   */
+  private requestDirect<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    options?: TransportOptions
+  ): Promise<T> {
+    return this.send<T>(method, path, body, options, false);
+  }
+
+  /**
+   * Make an authenticated request to an endpoint that wraps its result in
+   * { success, data } and return `data`.
+   */
+  private request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    options?: TransportOptions
+  ): Promise<T> {
+    return this.send<T>(method, path, body, options, true);
+  }
+
+  /**
+   * Shared transport with timeout and retry handling.
    *
    * R1.sdk.1: callers may pass `requestTimeoutMs` to override the
    * constructor default for a specific request — used by verb methods
@@ -1560,115 +1611,27 @@ export class UnbrowserClient {
    * SDK doesn't abort before the server's own budget is honored. They
    * may also pass `disableRetries` to opt out of the retry loop when
    * the caller asked for a long single attempt.
-   */
-  private async requestDirect<T>(
-    method: string,
-    path: string,
-    body?: unknown,
-    options?: { signal?: AbortSignal; requestTimeoutMs?: number; disableRetries?: boolean }
-  ): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    const effectiveTimeoutMs = options?.requestTimeoutMs ?? this.timeout;
-
-    let lastError: Error | null = null;
-    const attempts = this.retry && !options?.disableRetries ? this.maxRetries : 1;
-
-    for (let attempt = 1; attempt <= attempts; attempt++) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs);
-
-        const response = await fetch(url, {
-          method,
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.apiKey}`,
-          },
-          body: body ? JSON.stringify(body) : undefined,
-          signal: options?.signal || controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        const result = (await response.json()) as T & {
-          success?: boolean;
-          error?: { code: string; message: string };
-        };
-
-        // Check for error response
-        if (result.success === false && result.error) {
-          throw new UnbrowserError(result.error.code as ErrorCode, result.error.message, {
-            statusCode: response.status,
-          });
-        }
-
-        return result;
-      } catch (error) {
-        lastError = error as Error;
-
-        // Don't retry on auth errors or bad requests
-        if (error instanceof UnbrowserError) {
-          const nonRetryable: ErrorCode[] = [
-            'UNAUTHORIZED',
-            'FORBIDDEN',
-            'INVALID_REQUEST',
-            'INVALID_URL',
-            'MISSING_API_KEY',
-            'INVALID_API_KEY',
-          ];
-          if (nonRetryable.includes(error.code)) {
-            throw error;
-          }
-        }
-
-        // Don't retry on user abort. Surface the effective timeout in the
-        // error message so the caller can tell whether it's a constructor
-        // default (60s) hit or a derived `maxLatencyMs + 30s` cushion.
-        if (error instanceof Error && error.name === 'AbortError') {
-          throw new UnbrowserError(
-            'REQUEST_ABORTED',
-            `Request aborted after ${effectiveTimeoutMs}ms (SDK-side). ` +
-              `If you set options.maxLatencyMs, ensure the SDK timeout exceeds it; ` +
-              `pass createUnbrowser({ timeout: <ms> }) or upgrade @unbrowser/cloud to a ` +
-              `version that derives requestTimeout from options.maxLatencyMs automatically.`
-          );
-        }
-
-        // Wait before retrying (exponential backoff)
-        if (attempt < attempts) {
-          const delay = Math.min(Math.pow(2, attempt) * 1000, 30000);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-        }
-      }
-    }
-
-    throw lastError || new UnbrowserError('UNKNOWN_ERROR', 'Request failed');
-  }
-
-  /**
-   * Make an authenticated request to the API with retry logic.
    *
-   * R1.sdk.1: callers may pass `requestTimeoutMs` and `disableRetries`
-   * to opt into the maxLatencyMs-aware per-request timeout coordination.
-   * See `requestDirect` for the same pattern.
+   * Every failure surfaces as an `UnbrowserError`. Errors whose recovery
+   * guidance says `canRetry: false` are not retried.
    */
-  private async request<T>(
+  private async send<T>(
     method: string,
     path: string,
-    body?: unknown,
-    options?: { signal?: AbortSignal; requestTimeoutMs?: number; disableRetries?: boolean }
+    body: unknown,
+    options: TransportOptions | undefined,
+    unwrap: boolean
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const effectiveTimeoutMs = options?.requestTimeoutMs ?? this.timeout;
-
-    let lastError: Error | null = null;
     const attempts = this.retry && !options?.disableRetries ? this.maxRetries : 1;
+    let lastError: UnbrowserError | null = null;
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs);
 
+      try {
         const response = await fetch(url, {
           method,
           headers: {
@@ -1679,43 +1642,28 @@ export class UnbrowserClient {
           signal: options?.signal || controller.signal,
         });
 
-        clearTimeout(timeoutId);
+        const text = await response.text();
+        let result: (T & { success?: boolean; data?: T; error?: { code: string; message: string } }) | undefined;
+        try {
+          result = JSON.parse(text);
+        } catch {
+          throw nonJsonError(response.status, text);
+        }
+        if (result === null || typeof result !== 'object') {
+          throw nonJsonError(response.status, text);
+        }
 
-        const result = (await response.json()) as {
-          success: boolean;
-          data?: T;
-          error?: { code: string; message: string };
-        };
-
-        if (!result.success) {
+        if (unwrap ? !result.success : result.success === false && result.error) {
           const error = result.error || { code: 'UNKNOWN_ERROR', message: 'Unknown error' };
           throw new UnbrowserError(error.code as ErrorCode, error.message, {
             statusCode: response.status,
           });
         }
 
-        return result.data as T;
+        return unwrap ? (result.data as T) : (result as T);
       } catch (error) {
-        lastError = error as Error;
-
-        // Don't retry on auth errors or bad requests
-        if (error instanceof UnbrowserError) {
-          const nonRetryable: ErrorCode[] = [
-            'UNAUTHORIZED',
-            'FORBIDDEN',
-            'INVALID_REQUEST',
-            'INVALID_URL',
-            'MISSING_API_KEY',
-            'INVALID_API_KEY',
-          ];
-          if (nonRetryable.includes(error.code)) {
-            throw error;
-          }
-        }
-
-        // Don't retry on user abort. Name the effective timeout so the caller
-        // can distinguish a 60s constructor-default hit from a derived
-        // maxLatencyMs cushion.
+        // Name the effective timeout so the caller can distinguish a 60s
+        // constructor-default hit from a derived maxLatencyMs cushion.
         if (error instanceof Error && error.name === 'AbortError') {
           throw new UnbrowserError(
             'REQUEST_ABORTED',
@@ -1726,15 +1674,28 @@ export class UnbrowserClient {
           );
         }
 
-        // Wait before retrying (exponential backoff)
+        lastError =
+          error instanceof UnbrowserError
+            ? error
+            : new UnbrowserError(
+                'NETWORK_ERROR',
+                `Request to ${path} failed: ${error instanceof Error ? error.message : String(error)}`,
+                { cause: error instanceof Error ? error : undefined }
+              );
+
+        // Errors the SDK documents as non-retryable (auth, quota, bad input).
+        if (lastError.recovery.canRetry === false) throw lastError;
+
         if (attempt < attempts) {
           const delay = Math.min(Math.pow(2, attempt) * 1000, 30000);
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
 
-    throw lastError || new UnbrowserError('UNKNOWN_ERROR', 'Request failed');
+    throw lastError ?? new UnbrowserError('UNKNOWN_ERROR', 'Request failed');
   }
 }
 
