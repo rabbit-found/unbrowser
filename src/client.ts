@@ -69,6 +69,8 @@ import {
   type AgentBatchResult,
 } from './agent.js';
 
+import { readSseStream } from './sse.js';
+
 /**
  * Official client for the Unbrowser cloud API.
  *
@@ -448,54 +450,43 @@ export class UnbrowserClient {
 
     if (!response.ok) {
       const text = await response.text();
+      let body: { error?: { code?: string; message?: string } } | undefined;
       try {
-        const body = JSON.parse(text);
-        throw UnbrowserError.fromResponse(response, body);
+        body = JSON.parse(text);
       } catch {
-        throw new UnbrowserError('SSE_ERROR', `HTTP ${response.status}: ${text}`);
+        throw new UnbrowserError('SSE_ERROR', `HTTP ${response.status}: ${text}`, {
+          statusCode: response.status,
+        });
       }
+      throw UnbrowserError.fromResponse(response, body);
     }
 
-    const reader = response.body?.getReader();
-    if (!reader) {
+    if (!response.body) {
       throw new UnbrowserError('SSE_ERROR', 'Failed to get response reader');
     }
 
-    const decoder = new TextDecoder();
-    let buffer = '';
     let result: BrowseResult | null = null;
     let error: UnbrowserError | null = null;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          const eventType = line.slice(7).trim();
-          const dataLineIndex = lines.indexOf(line) + 1;
-
-          if (dataLineIndex < lines.length && lines[dataLineIndex].startsWith('data: ')) {
-            const data = JSON.parse(lines[dataLineIndex].slice(6));
-
-            if (eventType === 'progress') {
-              onProgress(data as ProgressEvent);
-            } else if (eventType === 'result') {
-              result = data.data as BrowseResult;
-            } else if (eventType === 'error') {
-              error = new UnbrowserError(
-                data.error?.code || 'SSE_ERROR',
-                data.error?.message || 'Browse failed'
-              );
-            }
-          }
-        }
+    await readSseStream(response.body, ({ event, data: raw }) => {
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        throw new UnbrowserError('SSE_ERROR', `Malformed ${event} event from server`);
       }
-    }
+
+      if (event === 'progress') {
+        onProgress(data as ProgressEvent);
+      } else if (event === 'result') {
+        result = data.data as BrowseResult;
+      } else if (event === 'error') {
+        error = new UnbrowserError(
+          data.error?.code || 'SSE_ERROR',
+          data.error?.message || 'Browse failed'
+        );
+      }
+    });
 
     if (error) throw error;
     if (!result) throw new UnbrowserError('SSE_ERROR', 'No result received');
@@ -1285,85 +1276,43 @@ export class UnbrowserClient {
 
     if (!response.ok) {
       const text = await response.text();
+      let body: { error?: { code?: string; message?: string } } | undefined;
       try {
-        const body = JSON.parse(text);
-        throw UnbrowserError.fromResponse(response, body);
+        body = JSON.parse(text);
       } catch {
-        throw new UnbrowserError('SSE_ERROR', `HTTP ${response.status}: ${text}`);
+        throw new UnbrowserError('SSE_ERROR', `HTTP ${response.status}: ${text}`, {
+          statusCode: response.status,
+        });
       }
+      throw UnbrowserError.fromResponse(response, body);
     }
 
-    const reader = response.body?.getReader();
-    if (!reader) {
+    if (!response.body) {
       throw new UnbrowserError('SSE_ERROR', 'Failed to get response reader');
     }
 
-    const decoder = new TextDecoder();
-    let buffer = '';
     let result: ResearchResult | null = null;
     let error: UnbrowserError | null = null;
 
-    // Helper function to parse SSE lines
-    const parseLines = (lines: string[]) => {
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.startsWith('event: ')) {
-          const eventType = line.slice(7).trim();
-
-          // Look for the data line (might be next line or same batch)
-          let dataLine: string | undefined;
-          if (i + 1 < lines.length && lines[i + 1].startsWith('data: ')) {
-            dataLine = lines[i + 1];
-          }
-
-          if (dataLine) {
-            const data = JSON.parse(dataLine.slice(6));
-
-            if (eventType === 'progress') {
-              onProgress(data as ResearchProgressEvent);
-            } else if (eventType === 'result') {
-              result = data as ResearchResult;
-            } else if (eventType === 'error') {
-              error = new UnbrowserError(
-                data.error?.code || 'SSE_ERROR',
-                data.error?.message || 'Research failed'
-              );
-            }
-          }
-        }
-      }
-    };
-
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) {
-        // Process any remaining buffer content when stream ends
-        if (buffer.trim()) {
-          // Debug: log remaining buffer
-          // console.log('[SSE DEBUG] Final buffer:', JSON.stringify(buffer));
-          const remainingLines = buffer.split('\n');
-          // console.log('[SSE DEBUG] Remaining lines:', remainingLines.length, remainingLines.map(l => l.slice(0, 50)));
-          parseLines(remainingLines);
-        }
-        break;
+    await readSseStream(response.body, ({ event, data: raw }) => {
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        throw new UnbrowserError('SSE_ERROR', `Malformed ${event} event from server`);
       }
 
-      buffer += decoder.decode(value, { stream: true });
-
-      // SSE events are separated by double newlines
-      // Split on \n\n to get complete events
-      const events = buffer.split('\n\n');
-
-      // Keep the last part in buffer (might be incomplete)
-      buffer = events.pop() || '';
-
-      // Process complete events
-      for (const event of events) {
-        const lines = event.split('\n');
-        parseLines(lines);
+      if (event === 'progress') {
+        onProgress(data as ResearchProgressEvent);
+      } else if (event === 'result') {
+        result = data as ResearchResult;
+      } else if (event === 'error') {
+        error = new UnbrowserError(
+          data.error?.code || 'SSE_ERROR',
+          data.error?.message || 'Research failed'
+        );
       }
-    }
+    });
 
     if (error) throw error;
     if (!result) throw new UnbrowserError('SSE_ERROR', 'No result received');
