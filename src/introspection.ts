@@ -439,7 +439,7 @@ for (const endpoint of result.discovered) {
     related: ['getDomainIntelligence'],
     useCases: [
       'Find hidden APIs',
-      'Optimize future requests',
+      'Call discovered endpoints directly',
       'Map API surface area',
     ],
   },

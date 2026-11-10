@@ -1,8 +1,10 @@
 /**
  * Example 10: Procedural Memory (Skill Learning)
  *
- * The SDK learns browsing patterns and can replay them.
- * Skills are domain-specific action sequences that work.
+ * Records browse trajectories and stores domain-specific skills
+ * (action sequences) you can inspect, add by hand, and look up per URL.
+ * Recorded skills are not yet replayed automatically to skip rendering
+ * on later visits.
  *
  * Run: node examples/10-procedural-memory.mjs
  */
