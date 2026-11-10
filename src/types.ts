@@ -153,7 +153,7 @@ export interface BrowseOptions {
 
   /**
    * Maximum cost tier to use.
-   * - 'intelligence': Fastest, lowest cost (~50-200ms), uses learned patterns
+   * - 'intelligence': Fastest, lowest cost (~50-200ms), uses static HTML, framework extraction, and built-in site handlers
    * - 'lightweight': Medium speed (~200-500ms), uses linkedom
    * - 'playwright': Slowest, highest cost (~2-5s), full browser
    */
@@ -1012,7 +1012,7 @@ export type ProgressCallback = (event: ProgressEvent) => void;
  *
  * @description
  * Configure which paths and methods to test when discovering APIs.
- * Discovery results are learned and used for future requests.
+ * Discovered endpoints are returned to you; they are not replayed on later requests.
  *
  * @example
  * ```typescript

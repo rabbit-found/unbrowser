@@ -155,7 +155,7 @@ export const METHOD_CATALOG: Record<string, MethodInfo> = {
     name: 'browse',
     description: 'Browse a URL and extract its content as markdown, text, or HTML.',
     details:
-      'The primary method for web content extraction. Uses a tiered approach: first tries intelligence tier (cached patterns), then lightweight rendering, finally full browser. Returns structured content with metadata about the extraction.',
+      'The primary method for web content extraction. Uses a tiered approach: first tries intelligence tier (static HTML, framework extraction, built-in site handlers), then lightweight rendering, finally full browser. Returns structured content with metadata about the extraction.',
     parameters: [
       {
         name: 'url',
@@ -406,7 +406,7 @@ if (intel.shouldUseSession) {
     name: 'discoverApis',
     description: 'Discover API endpoints via intelligent fuzzing.',
     details:
-      'Probes common API paths on a domain to discover endpoints. Discovered APIs are cached and used directly for future requests, bypassing browser rendering for 10x speedup.',
+      'Probes common API paths on a domain to discover endpoints. Discovered endpoints are reported. They are not yet replayed to skip browser rendering on later visits.',
     parameters: [
       {
         name: 'domain',
@@ -888,7 +888,7 @@ export function getCapabilities(): SDKCapabilities {
     name: '@unbrowser/cloud',
     version: '0.1.0-alpha.1',
     description:
-      'Official SDK for the Unbrowser cloud API. Provides intelligent web browsing with learned patterns, API discovery, and progressive optimization.',
+      'Official SDK for the Unbrowser cloud API. Provides intelligent web browsing with tiered rendering, API discovery, and full-browser fallback.',
     categories: [
       {
         name: 'Content Extraction',

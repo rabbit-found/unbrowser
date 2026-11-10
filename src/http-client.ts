@@ -1114,8 +1114,8 @@ export class UnbrowserClient {
    * Discover API endpoints via fuzzing (FUZZ-001)
    *
    * Proactively discovers API endpoints by testing common path patterns.
-   * Once discovered, APIs are cached and used directly for future requests,
-   * bypassing browser rendering for 10x speedup.
+   * Discovered endpoints are reported. They are not yet replayed to skip
+   * browser rendering on later visits.
    *
    * @param domain - Domain to discover APIs on (e.g., 'api.example.com')
    * @param options - Discovery options (paths, methods, timeouts)

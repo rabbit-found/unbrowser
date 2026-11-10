@@ -4,11 +4,11 @@ Official SDK for the Unbrowser cloud API - intelligent web browsing for AI agent
 
 ## What is Unbrowser?
 
-Unbrowser is an intelligent web browsing API that learns from patterns, discovers APIs automatically, and progressively optimizes to bypass browser rendering entirely.
+Unbrowser is an intelligent web browsing API. For each page it uses the cheapest rendering tier that works, and falls back to a full browser when needed.
 
 **Key capabilities:**
 - Extract content from any webpage as markdown, text, or HTML
-- Automatic API discovery for 10x faster subsequent requests
+- Fast on static and server-rendered pages and on sites with built-in API handlers; JS-heavy pages get a full browser render
 - Workflow recording and replay for automation
 - Session management for authenticated browsing
 - Self-describing API designed for LLM agents
@@ -44,7 +44,7 @@ This SDK is designed specifically for AI agents. Every method is self-describing
 const caps = client.describe();
 console.log(caps.description);
 // "Official SDK for the Unbrowser cloud API. Provides intelligent web
-// browsing with learned patterns, API discovery, and progressive optimization."
+// browsing with tiered rendering, API discovery, and full-browser fallback."
 
 // List all categories
 for (const category of caps.categories) {
@@ -101,7 +101,7 @@ const llmsTxt = client.generateLlmsTxt();
 
 Extract content from a URL. Uses tiered rendering for optimal speed:
 
-1. **Intelligence tier** (~50-200ms): Uses learned patterns
+1. **Intelligence tier** (~50-200ms): Uses static HTML, framework extraction, and built-in site handlers
 2. **Lightweight tier** (~200-500ms): Uses linkedom
 3. **Playwright tier** (~2-5s): Full browser for complex pages
 
