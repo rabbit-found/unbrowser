@@ -153,7 +153,7 @@ export interface BrowseOptions {
 
   /**
    * Maximum cost tier to use.
-   * - 'intelligence': Fastest, lowest cost (~50-200ms), uses learned patterns
+   * - 'intelligence': Fastest, lowest cost (~50-200ms), uses static HTML, framework extraction, and built-in site handlers
    * - 'lightweight': Medium speed (~200-500ms), uses linkedom
    * - 'playwright': Slowest, highest cost (~2-5s), full browser
    */

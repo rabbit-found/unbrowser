@@ -5,9 +5,8 @@
  *
  * ## Overview
  *
- * Unbrowser is an intelligent web browsing API that learns from patterns,
- * discovers APIs automatically, and progressively optimizes to bypass
- * browser rendering entirely.
+ * Unbrowser is an intelligent web browsing API. For each page it uses the
+ * cheapest rendering tier that works, and falls back to a full browser when needed.
  *
  * ## Quick Start
  *
@@ -44,7 +43,7 @@
  * ## Key Features
  *
  * - **Tiered Rendering**: Intelligence (~50ms) -> Lightweight (~200ms) -> Playwright (~2-5s)
- * - **API Discovery**: Automatically discovers and caches API patterns
+ * - **API Discovery**: Probes a domain for API endpoints
  * - **Workflow Recording**: Record and replay browsing workflows
  * - **Skill Packs**: Export and import portable skill collections
  * - **Self-Describing**: Built for LLM discovery with introspection methods

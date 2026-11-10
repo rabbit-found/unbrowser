@@ -63,13 +63,13 @@ import {
  *
  * @description
  * UnbrowserClient provides intelligent web browsing for AI agents.
- * It learns from browsing patterns, discovers APIs automatically,
- * and progressively optimizes to bypass browser rendering.
+ * It picks the cheapest rendering tier that works for each page,
+ * discovers API endpoints, and falls back to a full browser when needed.
  *
  * ## Key Features
  *
  * - **Tiered Rendering**: Intelligence (~50ms) -> Lightweight (~200ms) -> Playwright (~2-5s)
- * - **API Discovery**: Automatically discovers and caches API patterns
+ * - **API Discovery**: Probes a domain for API endpoints
  * - **Workflow Recording**: Record and replay browsing workflows
  * - **Skill Packs**: Export and import portable skill collections
  *
@@ -305,7 +305,7 @@ export class UnbrowserClient {
    * @description
    * The primary method for web content extraction. Uses a tiered approach:
    *
-   * 1. **Intelligence tier** (~50-200ms): Uses learned patterns and cached data
+   * 1. **Intelligence tier** (~50-200ms): Uses static HTML, framework extraction, and built-in site handlers
    * 2. **Lightweight tier** (~200-500ms): Uses linkedom for simple rendering
    * 3. **Playwright tier** (~2-5s): Full browser for complex pages
    *
@@ -609,8 +609,8 @@ export class UnbrowserClient {
    *
    * @description
    * Probes common API paths on a domain to discover endpoints.
-   * Discovered APIs are cached and used directly for future requests,
-   * bypassing browser rendering for 10x speedup.
+   * Discovered endpoints are reported. They are not yet replayed to skip
+   * browser rendering on later visits.
    *
    * @param domain - Domain to discover APIs on
    * @param options - Discovery options (paths, methods, timeouts)
