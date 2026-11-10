@@ -2,7 +2,7 @@
  * Example 03: API Discovery
  *
  * Discover API endpoints automatically from network traffic.
- * The SDK learns API patterns and can make direct API calls later.
+ * Shows the API patterns recorded from network traffic during a browse.
  *
  * Run: node examples/03-api-discovery.mjs
  */

@@ -1012,7 +1012,7 @@ export type ProgressCallback = (event: ProgressEvent) => void;
  *
  * @description
  * Configure which paths and methods to test when discovering APIs.
- * Discovery results are learned and used for future requests.
+ * Discovered endpoints are returned to you; they are not replayed on later requests.
  *
  * @example
  * ```typescript
